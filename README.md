@@ -25,6 +25,26 @@
 - Steam Web API 查询
 - 缓存机制减少 API 调用
 
+## Babashka 脚本
+
+### 获取单个 Workshop 信息
+```bash
+bb steam_fetch_workshop_info.bb.clj --id 3688270372
+bb steam_fetch_workshop_info.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext="
+bb steam_fetch_workshop_info.bb.clj --session sw1 --id 3688270372
+```
+
+默认输出 JSON。
+脚本通过 `@playwright/cli` 抓取 Steam Community 页面，不依赖 Steam API Key。
+首次使用如果本机没有浏览器运行时，执行 `npx @playwright/cli install-browser`。
+项目通过 `bb.edn` 暴露 `src/` 下的公共 namespace，单条抓取、playwright-cli 调用和 `.env` 解析分别抽在：
+`src/steam_workshop/workshop.clj`
+`src/steam_workshop/playwright_cli.clj`
+`src/steam_workshop/dotenv.clj`
+Neo4j 写入和导入流程抽在：
+`src/steam_workshop/neo4j.clj`
+`src/steam_workshop/importer.clj`
+
 ## 技术架构
 
 ### 架构图
@@ -494,3 +514,51 @@ let cycles = try await analyzer.detectCircularDependencies(itemId: "2876234567")
 
 **作者**: Claude
 **最后更新**: 2025-01-29
+
+
+- [] 从 https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B0%5D=Build+42&actualsort=lastupdated&browsesort=lastupdated&p=1 获取workshop item 列表,递归分析每个item的require item 并添加到neo4j
+
+### Babashka 一键导入到 Neo4j（MVP）
+```bash
+# 前置：安装 babashka(bb)
+# playwright-cli 首次使用需要安装浏览器：
+#   npx @playwright/cli install-browser
+# .env 示例：
+#   NEO4J_AUTH=neo4j/你的密码
+#   NEO4J_URI=bolt://localhost:7687
+#   NEO4J_TX_URL=http://localhost:7474/db/neo4j/tx/commit
+
+bb steam_import_neo4j.bb.clj \
+  --appid 108600 \
+  --required-tag "Build 42" \
+  --page 1 \
+  --page-limit 10 \
+  --max-depth 5 \
+  --max-nodes 300
+```
+
+导入脚本会自动读取项目根目录下的 `.env`，并在整个导入过程中复用一个 `playwright-cli` browser session。
+`--page-limit` 用于从 `--page` 开始连续抓取多页 workshop browse seed，再统一去重后做 BFS。当前默认抓前 `10` 页，且 browse 请求会带 `numperpage=30`。
+
+### 导入单个 Workshop 到 Neo4j
+```bash
+bb steam_import_single_neo4j.bb.clj --id 3689745069
+bb steam_import_single_neo4j.bb.clj --id 3689745069 --max-depth 10 --max-nodes 300
+```
+
+单条导入现在也会递归抓取 `Required items` 依赖链上的每一个 item，并为每个节点补全标题、作者、封面、发布时间等信息。
+
+顶层 `*.bb.clj` 只负责 CLI 参数解析；抓取、导入、Neo4j 写入等具体逻辑统一放在 `src/steam_workshop/`。
+
+### 查询单个 Workshop 在 Neo4j 中的节点和边
+```bash
+bb steam_query_neo4j.bb.clj --id 3689745069
+```
+
+输出包含：
+- 节点是否存在
+- 节点属性
+- `requires` 出边列表
+- `required_by` 入边列表
+
+- [ ] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
