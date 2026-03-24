@@ -35,19 +35,19 @@
          distinct
          vec)))
 
-(defn browse-url [appid required-tag page]
+(defn browse-url [appid required-tag sort page]
   (str "https://steamcommunity.com/workshop/browse/?appid=" appid
        "&requiredtags%5B0%5D=" (URLEncoder/encode required-tag "UTF-8")
-       "&actualsort=lastupdated"
+       "&actualsort=" (URLEncoder/encode (or sort "lastupdated") "UTF-8")
        "&p=" page
        "&numperpage=30"
-       "&browsesort=lastupdated"))
+       "&browsesort=" (URLEncoder/encode (or sort "lastupdated") "UTF-8")))
 
-(defn fetch-seed-ids [appid required-tag page page-limit]
+(defn fetch-seed-ids [appid required-tag sort page page-limit]
   (let [pages (range page (+ page page-limit))]
     (->> pages
          (mapcat (fn [p]
-                   (let [url (browse-url appid required-tag p)]
+                   (let [url (browse-url appid required-tag sort p)]
                      (println "browse-url=" url)
                      (extract-browse-ids (http-get-str url)))))
          distinct
@@ -162,15 +162,16 @@
 (defn import-browse! [tx-url basic-auth opts]
   (let [appid (:appid opts)
         required-tag (:required-tag opts)
+        sort (:sort opts)
         page (:page opts)
         page-limit (:page-limit opts)
         session (str "sw-import-" (subs (str (UUID/randomUUID)) 0 8))]
     (println "[1/4] fetch browse seeds")
-    (println "start-page=" page "page-limit=" page-limit)
+    (println "sort=" sort "start-page=" page "page-limit=" page-limit)
     (println "playwright session=" session)
     (try
       (open-browser-session! session)
-      (let [seed-ids (fetch-seed-ids appid required-tag page page-limit)]
+      (let [seed-ids (fetch-seed-ids appid required-tag sort page page-limit)]
         (when (empty? seed-ids)
           (println "未从 browse 页面提取到任何 publishedFileId；请确认 required-tag、appid 和 page/page-limit 是否正确。"))
         (import-seeds! tx-url basic-auth seed-ids opts session))

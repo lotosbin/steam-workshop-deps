@@ -444,17 +444,27 @@ steam-workshop-deps/
 
 ### CLI 使用
 ```bash
-# 分析单个物品的依赖
-$ workshop-deps analyze 2876234567
+# 先准备本地 workshop 目录（以 Project Zomboid 为例）：
+# ~/.steam/steamapps/workshop/content/108600
+# 其中 108600 是游戏的 Steam AppID，每个 mod 是一个子目录（通常是数字 publishedFileId）。
 
-# 查找反向依赖
-$ workshop-deps reverse-deps 2876234567
+# 输出依赖树（root 向下展开）
+$ workshop-deps tree --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "内部id 或 published_id"
 
-# 检测循环依赖
-$ workshop-deps check-cycles 2876234567
+# 输出反向依赖（谁依赖了 target）
+$ workshop-deps reverse --workshop-dir "/path/to/steamapps/workshop/content/108600" --target "内部id 或 published_id"
 
-# 导出依赖图
-$ workshop-deps export-graph 2876234567 --format=dot
+# 从 root 开始检测可达范围内的循环依赖
+$ workshop-deps cycles --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "内部id 或 published_id"
+```
+
+### Web MVP（Demo 图）
+```bash
+# 启动一个静态服务（无需安装额外依赖）
+python3 -m http.server 5173 --directory web
+
+# 打开：
+# http://localhost:5173/index.html
 ```
 
 ### API 使用
@@ -531,6 +541,7 @@ let cycles = try await analyzer.detectCircularDependencies(itemId: "2876234567")
 bb steam_import_neo4j.bb.clj \
   --appid 108600 \
   --required-tag "Build 42" \
+  --sort totaluniquesubscribers \
   --page 1 \
   --page-limit 10 \
   --max-depth 5 \
@@ -539,6 +550,8 @@ bb steam_import_neo4j.bb.clj \
 
 导入脚本会自动读取项目根目录下的 `.env`，并在整个导入过程中复用一个 `playwright-cli` browser session。
 `--page-limit` 用于从 `--page` 开始连续抓取多页 workshop browse seed，再统一去重后做 BFS。当前默认抓前 `10` 页，且 browse 请求会带 `numperpage=30`。
+`--sort` 同时映射到 Steam browse URL 的 `actualsort` 和 `browsesort`。默认值是 `lastupdated`；如果要按最多订阅抓取，传 `--sort totaluniquesubscribers`。
+`--max-nodes` 限制的是递归过程中新增的依赖节点数量，不包含初始 browse seed。
 
 ### 导入单个 Workshop 到 Neo4j
 ```bash

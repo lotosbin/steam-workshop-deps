@@ -11,7 +11,7 @@
 ;; - NEO4J_TX_URL（可选，覆盖 Neo4j tx/commit URL）
 ;;
 ;; 示例：
-;;   bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --max-depth 5 --max-nodes 300
+;;   bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort totaluniquesubscribers --max-depth 5 --max-nodes 300
 
 (require '[clojure.string :as str]
          '[steam-workshop.dotenv :as dotenv]
@@ -33,6 +33,7 @@
 (defn parse-args [argv]
   (let [args (atom {:appid 108600
                      :required-tag "Build 42"
+                     :sort "lastupdated"
                      :page 1
                      :page-limit 10
                      :max-depth 5
@@ -48,6 +49,7 @@
           (cond
             (= k "--appid") (swap! args assoc :appid v)
             (= k "--required-tag") (swap! args assoc :required-tag v)
+            (= k "--sort") (swap! args assoc :sort v)
             (= k "--page") (swap! args assoc :page (Integer/parseInt v))
             (= k "--page-limit") (swap! args assoc :page-limit (Integer/parseInt v))
             (= k "--max-depth") (swap! args assoc :max-depth (Integer/parseInt v))
