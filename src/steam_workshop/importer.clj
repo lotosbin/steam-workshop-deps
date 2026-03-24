@@ -63,9 +63,17 @@
   (println "POST nodes batch, count=" (count nodes))
   (neo4j/post-statement! neo-tx-url neo-basic neo4j/node-statement nodes))
 
+(defn post-collection-batch! [neo-tx-url neo-basic collections]
+  (println "POST collections batch, count=" (count collections))
+  (neo4j/post-statement! neo-tx-url neo-basic neo4j/collection-node-statement collections))
+
 (defn post-edge-batch! [neo-tx-url neo-basic edges]
   (println "POST edges batch, count=" (count edges))
   (neo4j/post-statement! neo-tx-url neo-basic neo4j/edge-statement edges))
+
+(defn post-collection-edge-batch! [neo-tx-url neo-basic edges]
+  (println "POST collection edges batch, count=" (count edges))
+  (neo4j/post-statement! neo-tx-url neo-basic neo4j/collection-edge-statement edges))
 
 (defn import-seeds! [tx-url basic-auth seed-ids opts session]
   (let [max-depth (:max-depth opts)
@@ -152,10 +160,24 @@
   (let [session (str "sw-single-" (subs (str (UUID/randomUUID)) 0 8))]
     (try
       (open-browser-session! session)
-      (println "[1/4] import single root")
+      (println "[1/4] inspect root page")
       (println "root-id=" id)
       (println "playwright session=" session)
-      (import-seeds! tx-url basic-auth [(str id)] opts session)
+      (let [root-info (workshop/fetch-info id session)
+            page-type (:page_type root-info)]
+        (println "root-page-type=" page-type)
+        (if (= page-type "collection")
+          (let [collection-item-ids (vec (distinct (:collection_item_ids root-info)))]
+            (when (empty? collection-item-ids)
+              (println "未从 collection 页面提取到任何条目"))
+            (post-collection-batch! tx-url basic-auth [(neo4j/collection-row id root-info)])
+            (when (seq collection-item-ids)
+              (post-collection-edge-batch! tx-url basic-auth (mapv #(neo4j/collection-edge-row id %) collection-item-ids))
+              (println "[2/4] import collection items requires graph")
+              (import-seeds! tx-url basic-auth collection-item-ids opts session)))
+          (do
+            (println "[2/4] import single root")
+            (import-seeds! tx-url basic-auth [(str id)] opts session))))
       (finally
         (close-browser-session! session)))))
 

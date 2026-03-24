@@ -4,7 +4,8 @@
 (require '[clojure.string :as str]
          '[steam-workshop.dotenv :as dotenv]
          '[steam-workshop.importer :as importer]
-         '[steam-workshop.neo4j :as neo4j])
+         '[steam-workshop.neo4j :as neo4j]
+         '[steam-workshop.workshop :as workshop])
 
 (def script-dir
   (.getParent (java.io.File. *file*)))
@@ -18,7 +19,8 @@
 (defn usage! []
   (binding [*out* *err*]
     (println "用法:")
-    (println "  bb steam_import_single_neo4j.bb.clj --id <workshop-id> [--max-depth 10] [--max-nodes 300]"))
+    (println "  bb steam_import_single_neo4j.bb.clj --id <workshop-id> [--max-depth 10] [--max-nodes 300]")
+    (println "  bb steam_import_single_neo4j.bb.clj --url <steam-sharedfiles-url> [--max-depth 10] [--max-nodes 300]"))
   (System/exit 1))
 
 (defn parse-args [argv]
@@ -34,16 +36,17 @@
           (throw (ex-info "参数缺失" {:last k})))
         (cond
           (= k "--id") (recur more (assoc opts :id v))
+          (= k "--url") (recur more (assoc opts :url v))
           (= k "--max-depth") (recur more (assoc opts :max-depth (Integer/parseInt v)))
           (= k "--max-nodes") (recur more (assoc opts :max-nodes (Integer/parseInt v)))
           (= k "--sleep-ms") (recur more (assoc opts :sleep-ms (Integer/parseInt v)))
           (= k "--batch-edges") (recur more (assoc opts :batch-edges (Integer/parseInt v)))
-          (and (not (str/starts-with? (str k) "--")) (nil? (:id opts))) (recur (cons v more) (assoc opts :id k))
+          (and (not (str/starts-with? (str k) "--")) (nil? (:id opts)) (nil? (:url opts))) (recur (cons v more) (assoc opts :id k))
           :else (throw (ex-info "未知参数" {:arg k :value v})))))))
 
 (defn -main [& argv]
   (let [opts (parse-args argv)
-        id (:id opts)]
+        id (workshop/workshop-id opts)]
     (when-not (and id (re-matches #"\d+" id))
       (usage!))
     (let [neo-auth (or (getenv* "NEO4J_AUTH" "") "neo4j/please_change_me")

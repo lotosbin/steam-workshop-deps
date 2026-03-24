@@ -7,6 +7,7 @@
 (def extract-json-script
   (str
    "() => JSON.stringify({"
+   "page_type: document.querySelector('.collectionChildren') ? 'collection' : 'workshop_item',"
    "title: document.querySelector('meta[property=\"og:title\"], meta[name=\"og:title\"]')?.content ?? null,"
    "description: document.querySelector('meta[property=\"og:description\"], meta[name=\"og:description\"]')?.content ?? null,"
    "preview_url: document.querySelector('meta[property=\"og:image\"], meta[name=\"og:image\"]')?.content ?? null,"
@@ -19,6 +20,11 @@
    "  const panel = Array.from(document.querySelectorAll('.panel')).find((el) => el.querySelector('.rightSectionTopTitle')?.textContent?.trim() === 'Required items');"
    "  if (!panel) return [];"
    "  return Array.from(new Set(Array.from(panel.querySelectorAll('a[href*=\"/sharedfiles/filedetails/?id=\"], a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean)));"
+   "})(),"
+   "collection_item_ids: (() => {"
+   "  const container = document.querySelector('.collectionChildren');"
+   "  if (!container) return [];"
+   "  return Array.from(new Set(Array.from(container.querySelectorAll('.collectionItemDetails a[href*=\"/sharedfiles/filedetails/?id=\"], .collectionItemDetails a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean)));"
    "})(),"
    "linked_workshop_ids: Array.from(new Set(Array.from(document.querySelectorAll('a[href*=\"/sharedfiles/filedetails/?id=\"], a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean)))"
    "})"))
@@ -45,17 +51,24 @@
              raw-result (pw/extract-result (:out eval-result))
              json-text (when raw-result (json/parse-string raw-result))
              data (when json-text (json/parse-string json-text true))
+             page-type (or (:page_type data) "workshop_item")
              required-ids (vec (filter #(and % (re-matches #"\d+" %))
                                        (:required_item_ids data)))
+             collection-item-ids (vec (filter #(and % (re-matches #"\d+" %))
+                                              (:collection_item_ids data)))
              linked-ids (vec (filter #(and % (re-matches #"\d+" %))
                                      (:linked_workshop_ids data)))
-             dependency-ids (vec (remove #(= % id) required-ids))]
+             dependency-ids (if (= page-type "collection")
+                              collection-item-ids
+                              (vec (remove #(= % id) required-ids)))]
          (when-not data
            (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
                            {:stdout (:out eval-result)})))
          (assoc data
                 :id id
+                :page_type page-type
                 :required_item_ids required-ids
+                :collection_item_ids collection-item-ids
                 :dependency_ids dependency-ids
                 :linked_workshop_ids linked-ids
                 :source "steamcommunity-playwright-cli"))

@@ -557,9 +557,12 @@ bb steam_import_neo4j.bb.clj \
 ```bash
 bb steam_import_single_neo4j.bb.clj --id 3689745069
 bb steam_import_single_neo4j.bb.clj --id 3689745069 --max-depth 10 --max-nodes 300
+bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825"
 ```
 
-单条导入现在也会递归抓取 `Required items` 依赖链上的每一个 item，并为每个节点补全标题、作者、封面、发布时间等信息。
+单条导入现在支持两类 sharedfiles 页面：
+- 普通 Workshop item：递归抓取 `Required items` 依赖链上的每一个 item，并为每个节点补全标题、作者、封面、发布时间等信息。
+- Collection 页面：自动识别为 `Collection` 节点，提取合集内条目，写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再继续递归抓取这些条目的 `Required items` 依赖。
 
 顶层 `*.bb.clj` 只负责 CLI 参数解析；抓取、导入、Neo4j 写入等具体逻辑统一放在 `src/steam_workshop/`。
 

@@ -54,8 +54,14 @@
 (def node-statement
   "UNWIND $rows AS row MERGE (m:Mod {id: row.id}) SET m += row.props")
 
+(def collection-node-statement
+  "UNWIND $rows AS row MERGE (c:Collection {id: row.id}) SET c += row.props")
+
 (def edge-statement
   "UNWIND $rows AS row MERGE (a:Mod {id: row.from}) MERGE (b:Mod {id: row.to}) MERGE (a)-[:REQUIRES]->(b)")
+
+(def collection-edge-statement
+  "UNWIND $rows AS row MERGE (c:Collection {id: row.collection_id}) MERGE (m:Mod {id: row.mod_id}) MERGE (c)-[:CONTAINS]->(m)")
 
 (defn node-row
   ([id] (node-row id nil))
@@ -72,8 +78,26 @@
              (:file_size info) (assoc :file_size (:file_size info))
              (:description info) (assoc :description (:description info)))}))
 
+(defn collection-row [id info]
+  {:id (str id)
+   :props (cond-> {:source "steamcommunity-playwright-cli"
+                   :workshop_id (str id)
+                   :page_type "collection"}
+            (:title info) (assoc :title (:title info))
+            (:author info) (assoc :author (:author info))
+            (:canonical_url info) (assoc :canonical_url (:canonical_url info))
+            (:preview_url info) (assoc :preview_url (:preview_url info))
+            (:posted info) (assoc :posted (:posted info))
+            (:updated info) (assoc :updated (:updated info))
+            (:description info) (assoc :description (:description info))
+            (:collection_item_ids info) (assoc :collection_item_ids (:collection_item_ids info))
+            (:linked_workshop_ids info) (assoc :linked_workshop_ids (:linked_workshop_ids info)))})
+
 (defn edge-row [from to]
   {:from (str from) :to (str to)})
+
+(defn collection-edge-row [collection-id mod-id]
+  {:collection_id (str collection-id) :mod_id (str mod-id)})
 
 (defn post-statement! [tx-url basic-auth statement rows]
   (http-post-json tx-url
