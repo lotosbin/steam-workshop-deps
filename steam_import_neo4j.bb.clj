@@ -7,11 +7,13 @@
 ;;
 ;; 依赖环境变量：
 ;; - 默认自动读取同目录下的 .env
-;; - NEO4J_AUTH（默认 neo4j/please_change_me；也可在 compose 指定）
+;; - NEO4J_AUTH（必填，格式 user/pass）
 ;; - NEO4J_TX_URL（可选，覆盖 Neo4j tx/commit URL）
 ;;
 ;; 示例：
 ;;   bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort totaluniquesubscribers --max-depth 5 --max-nodes 300
+;;   bb steam_import_neo4j.bb.clj --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600" --max-depth 5 --max-nodes 300
+;;   bb steam_import_neo4j.bb.clj --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?section=collections&appid=108600" --user-workshop-section collections --max-depth 5 --max-nodes 300
 
 (require '[clojure.string :as str]
          '[steam-workshop.dotenv :as dotenv]
@@ -30,24 +32,44 @@
 (defn getenv* [k default]
   (dotenv/getenv dotenv-env k default))
 
+(defn require-neo-auth []
+  (let [neo-auth (some-> (getenv* "NEO4J_AUTH" nil) str/trim not-empty)]
+    (when-not neo-auth
+      (throw (ex-info "缺少必需环境变量 NEO4J_AUTH"
+                      {:env "NEO4J_AUTH"})))
+    neo-auth))
+
 (def allowed-sorts
   #{"lastupdated" "totaluniquesubscribers" "trend"})
+
+(def allowed-user-workshop-sections
+  #{"items" "collections"})
 
 (defn normalize-sort [s]
   (some-> s str/lower-case))
 
 (defn validate-opts [opts]
-  (let [sort-value (normalize-sort (:sort opts))]
-    (when-not (contains? allowed-sorts sort-value)
+  (let [sort-value (normalize-sort (:sort opts))
+        section-value (some-> (:user-workshop-section opts) str/lower-case)]
+    (when (and (nil? (:user-workshop-url opts))
+               (not (contains? allowed-sorts sort-value)))
       (throw (ex-info "不支持的 --sort"
                       {:sort (:sort opts)
                        :allowed (sort allowed-sorts)})))
-    (assoc opts :sort sort-value)))
+    (when-not (contains? allowed-user-workshop-sections section-value)
+      (throw (ex-info "不支持的 --user-workshop-section"
+                      {:user-workshop-section (:user-workshop-section opts)
+                       :allowed (sort allowed-user-workshop-sections)})))
+    (assoc opts
+           :sort sort-value
+           :user-workshop-section section-value)))
 
 (defn parse-args [argv]
   (let [args (atom {:appid 108600
                      :required-tag "Build 42"
                      :sort "lastupdated"
+                     :user-workshop-url nil
+                     :user-workshop-section "items"
                      :page 1
                      :page-limit 10
                      :max-depth 5
@@ -64,6 +86,8 @@
             (= k "--appid") (swap! args assoc :appid v)
             (= k "--required-tag") (swap! args assoc :required-tag v)
             (= k "--sort") (swap! args assoc :sort v)
+            (= k "--user-workshop-url") (swap! args assoc :user-workshop-url v)
+            (= k "--user-workshop-section") (swap! args assoc :user-workshop-section v)
             (= k "--page") (swap! args assoc :page (Integer/parseInt v))
             (= k "--page-limit") (swap! args assoc :page-limit (Integer/parseInt v))
             (= k "--max-depth") (swap! args assoc :max-depth (Integer/parseInt v))
@@ -74,7 +98,7 @@
           (recur more))))))
 
 (defn run! [opts]
-  (let [neo-auth (or (getenv* "NEO4J_AUTH" "") "neo4j/please_change_me")
+  (let [neo-auth (require-neo-auth)
         [neo-user neo-pass] (neo4j/split-auth neo-auth)
         _ (when-not neo-user (throw (ex-info "NEO4J_AUTH 格式应为 user/pass" {:NEO4J_AUTH neo-auth})))
         neo-tx-url (neo4j/tx-url dotenv-env)

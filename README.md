@@ -567,7 +567,27 @@ bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort tot
 
 # 热门
 bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort trend
+
+# 指定用户的 Workshop Items 页面
+bb steam_import_neo4j.bb.clj \
+  --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600" \
+  --page 1 \
+  --page-limit 1 \
+  --max-depth 5 \
+  --max-nodes 300
+
+# 指定用户的 Collections 页面
+bb steam_import_neo4j.bb.clj \
+  --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?section=collections&appid=108600" \
+  --user-workshop-section collections \
+  --page 1 \
+  --page-limit 1 \
+  --max-depth 5 \
+  --max-nodes 300
 ```
+
+传 `--user-workshop-url` 时，seed 来源不再是 browse 列表，而是指定用户的 `myworkshopfiles` 页面分页结果。当前会提取 `Workshop Items` 标签页中的条目，再继续递归导入这些条目的依赖。
+如果传 `--user-workshop-section collections`，则会提取用户 `Collections` 标签页中的 collection id，并复用现有 collection 导入逻辑。
 
 ### 导入单个 Workshop 到 Neo4j
 ```bash
@@ -580,17 +600,25 @@ bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfile
 - 普通 Workshop item：递归抓取 `Required items` 依赖链上的每一个 item，并为每个节点补全标题、作者、封面、发布时间等信息。
 - Collection 页面：自动识别为 `Collection` 节点，提取合集内条目，写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再继续递归抓取这些条目的 `Required items` 依赖。
 
+导入过程中还会写入作者图谱：
+- `(:Author)-[:AUTHORED]->(:Mod)`
+- `(:Author)-[:ASSEMBLED]->(:Collection)`
+
 顶层 `*.bb.clj` 只负责 CLI 参数解析；抓取、导入、Neo4j 写入等具体逻辑统一放在 `src/steam_workshop/`。
 
-### 查询单个 Workshop 在 Neo4j 中的节点和边
+### 查询单个节点在 Neo4j 中的关系
 ```bash
 bb steam_query_neo4j.bb.clj --id 3689745069
+bb steam_query_neo4j.bb.clj --id 3624259825
+bb steam_query_neo4j.bb.clj --id lotosbin
 ```
 
-输出包含：
-- 节点是否存在
-- 节点属性
-- `requires` 出边列表
-- `required_by` 入边列表
+脚本会自动识别 `Mod`、`Collection`、`Author`：
+- `Mod`: 返回作者、所属合集、`requires`、`required_by`
+- `Collection`: 返回装配作者、`contains`
+- `Author`: 返回 `authored_mods`、`assembled_collections`
 
-- [ ] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
+- [x]] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
+- [x] 从合集链接导入 https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825 注意链接格式和单个workshop相似但是页面内容不通,需要区分处理
+- [x] 支持从热门获取列表 https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B0%5D=Build+42&actualsort=trend&p=1&numperpage=30
+- [x] 从指定用户的创意工坊页面导入 https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600

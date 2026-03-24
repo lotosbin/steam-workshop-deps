@@ -16,6 +16,13 @@
 (defn getenv* [k default]
   (dotenv/getenv dotenv-env k default))
 
+(defn require-neo-auth []
+  (let [neo-auth (some-> (getenv* "NEO4J_AUTH" nil) str/trim not-empty)]
+    (when-not neo-auth
+      (throw (ex-info "缺少必需环境变量 NEO4J_AUTH"
+                      {:env "NEO4J_AUTH"})))
+    neo-auth))
+
 (defn usage! []
   (binding [*out* *err*]
     (println "用法:")
@@ -49,7 +56,7 @@
         id (workshop/workshop-id opts)]
     (when-not (and id (re-matches #"\d+" id))
       (usage!))
-    (let [neo-auth (or (getenv* "NEO4J_AUTH" "") "neo4j/please_change_me")
+    (let [neo-auth (require-neo-auth)
           [neo-user neo-pass] (neo4j/split-auth neo-auth)
           _ (when-not neo-user (throw (ex-info "NEO4J_AUTH 格式应为 user/pass" {:NEO4J_AUTH neo-auth})))
           neo-basic (neo4j/basic-auth-header neo-user neo-pass)

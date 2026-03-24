@@ -10,7 +10,7 @@ services:
       - "7687:7687"
     environment:
       # 格式：username/password
-      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/please_change_me}
+      - NEO4J_AUTH=${NEO4J_AUTH}
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
@@ -20,4 +20,3 @@ volumes:
   neo4j_data:
   neo4j_logs:
   neo4j_plugins:
-

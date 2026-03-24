@@ -57,11 +57,20 @@
 (def collection-node-statement
   "UNWIND $rows AS row MERGE (c:Collection {id: row.id}) SET c += row.props")
 
+(def author-node-statement
+  "UNWIND $rows AS row MERGE (a:Author {id: row.id}) SET a += row.props")
+
 (def edge-statement
   "UNWIND $rows AS row MERGE (a:Mod {id: row.from}) MERGE (b:Mod {id: row.to}) MERGE (a)-[:REQUIRES]->(b)")
 
 (def collection-edge-statement
   "UNWIND $rows AS row MERGE (c:Collection {id: row.collection_id}) MERGE (m:Mod {id: row.mod_id}) MERGE (c)-[:CONTAINS]->(m)")
+
+(def authored-edge-statement
+  "UNWIND $rows AS row MERGE (a:Author {id: row.author_id}) MERGE (m:Mod {id: row.mod_id}) MERGE (a)-[:AUTHORED]->(m)")
+
+(def assembled-edge-statement
+  "UNWIND $rows AS row MERGE (a:Author {id: row.author_id}) MERGE (c:Collection {id: row.collection_id}) MERGE (a)-[:ASSEMBLED]->(c)")
 
 (defn node-row
   ([id] (node-row id nil))
@@ -71,6 +80,8 @@
                     :workshop_id (str id)}
              (:title info) (assoc :title (:title info))
              (:author info) (assoc :author (:author info))
+             (:author_id info) (assoc :author_id (:author_id info))
+             (:author_profile_url info) (assoc :author_profile_url (:author_profile_url info))
              (:canonical_url info) (assoc :canonical_url (:canonical_url info))
              (:preview_url info) (assoc :preview_url (:preview_url info))
              (:posted info) (assoc :posted (:posted info))
@@ -85,6 +96,8 @@
                    :page_type "collection"}
             (:title info) (assoc :title (:title info))
             (:author info) (assoc :author (:author info))
+            (:author_id info) (assoc :author_id (:author_id info))
+            (:author_profile_url info) (assoc :author_profile_url (:author_profile_url info))
             (:canonical_url info) (assoc :canonical_url (:canonical_url info))
             (:preview_url info) (assoc :preview_url (:preview_url info))
             (:posted info) (assoc :posted (:posted info))
@@ -98,6 +111,19 @@
 
 (defn collection-edge-row [collection-id mod-id]
   {:collection_id (str collection-id) :mod_id (str mod-id)})
+
+(defn author-row [info]
+  (when-let [author-id (some-> (:author_id info) str not-empty)]
+    {:id author-id
+     :props (cond-> {:source "steamcommunity-playwright-cli"}
+              (:author info) (assoc :name (:author info))
+              (:author_profile_url info) (assoc :profile_url (:author_profile_url info)))}))
+
+(defn authored-edge-row [author-id mod-id]
+  {:author_id (str author-id) :mod_id (str mod-id)})
+
+(defn assembled-edge-row [author-id collection-id]
+  {:author_id (str author-id) :collection_id (str collection-id)})
 
 (defn post-statement! [tx-url basic-auth statement rows]
   (http-post-json tx-url
