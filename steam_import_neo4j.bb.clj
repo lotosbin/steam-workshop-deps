@@ -30,6 +30,20 @@
 (defn getenv* [k default]
   (dotenv/getenv dotenv-env k default))
 
+(def allowed-sorts
+  #{"lastupdated" "totaluniquesubscribers" "trend"})
+
+(defn normalize-sort [s]
+  (some-> s str/lower-case))
+
+(defn validate-opts [opts]
+  (let [sort-value (normalize-sort (:sort opts))]
+    (when-not (contains? allowed-sorts sort-value)
+      (throw (ex-info "不支持的 --sort"
+                      {:sort (:sort opts)
+                       :allowed (sort allowed-sorts)})))
+    (assoc opts :sort sort-value)))
+
 (defn parse-args [argv]
   (let [args (atom {:appid 108600
                      :required-tag "Build 42"
@@ -68,7 +82,7 @@
     (importer/import-browse! neo-tx-url neo-basic opts)))
 
 (defn -main [& args]
-  (let [opts (parse-args args)]
+  (let [opts (validate-opts (parse-args args))]
     (run! opts)))
 
 (apply -main *command-line-args*)

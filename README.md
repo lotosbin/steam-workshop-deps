@@ -550,8 +550,24 @@ bb steam_import_neo4j.bb.clj \
 
 导入脚本会自动读取项目根目录下的 `.env`，并在整个导入过程中复用一个 `playwright-cli` browser session。
 `--page-limit` 用于从 `--page` 开始连续抓取多页 workshop browse seed，再统一去重后做 BFS。当前默认抓前 `10` 页，且 browse 请求会带 `numperpage=30`。
-`--sort` 同时映射到 Steam browse URL 的 `actualsort` 和 `browsesort`。默认值是 `lastupdated`；如果要按最多订阅抓取，传 `--sort totaluniquesubscribers`。
+`--sort` 同时映射到 Steam browse URL 的 `actualsort` 和 `browsesort`。默认值是 `lastupdated`。
+常用值：
+- `lastupdated`: 最近更新
+- `totaluniquesubscribers`: 最多订阅
+- `trend`: 热门
 `--max-nodes` 限制的是递归过程中新增的依赖节点数量，不包含初始 browse seed。
+
+示例：
+```bash
+# 最近更新
+bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort lastupdated
+
+# 最多订阅
+bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort totaluniquesubscribers
+
+# 热门
+bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort trend
+```
 
 ### 导入单个 Workshop 到 Neo4j
 ```bash
