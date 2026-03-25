@@ -578,7 +578,7 @@ bb steam_import_neo4j.bb.clj \
 
 # 指定合集
 bb steam_import_neo4j.bb.clj \
-  --user-workshop-url "hhttps://steamcommunity.com/sharedfiles/filedetails/?id=3624259825" \
+  --user-workshop-url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825" \
   --page 1 \
   --page-limit 1 \
   --max-depth 5 \
