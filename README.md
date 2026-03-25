@@ -570,7 +570,15 @@ bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort tre
 
 # 指定用户的 Workshop Items 页面
 bb steam_import_neo4j.bb.clj \
-  --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600" \
+  --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?appid=108600" \
+  --page 1 \
+  --page-limit 1 \
+  --max-depth 5 \
+  --max-nodes 300
+
+# 指定合集
+bb steam_import_neo4j.bb.clj \
+  --user-workshop-url "hhttps://steamcommunity.com/sharedfiles/filedetails/?id=3624259825" \
   --page 1 \
   --page-limit 1 \
   --max-depth 5 \
