@@ -618,7 +618,8 @@ bb steam_query_neo4j.bb.clj --id lotosbin
 - `Collection`: 返回装配作者、`contains`
 - `Author`: 返回 `authored_mods`、`assembled_collections`
 
-- [x]] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
+- [x] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
 - [x] 从合集链接导入 https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825 注意链接格式和单个workshop相似但是页面内容不通,需要区分处理
 - [x] 支持从热门获取列表 https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B0%5D=Build+42&actualsort=trend&p=1&numperpage=30
 - [x] 从指定用户的创意工坊页面导入 https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600
+- [X] 如果模组标题包含obsolete或者deprecate (不区分大小写), 则模组需要标记obsolte, 以方便在展示时区别显示

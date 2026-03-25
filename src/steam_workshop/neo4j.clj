@@ -72,12 +72,17 @@
 (def assembled-edge-statement
   "UNWIND $rows AS row MERGE (a:Author {id: row.author_id}) MERGE (c:Collection {id: row.collection_id}) MERGE (a)-[:ASSEMBLED]->(c)")
 
+(defn obsolete-title? [title]
+  (boolean (and (some? title)
+                (re-find #"(?i)(obsolete|deprecat)" (str title)))))
+
 (defn node-row
   ([id] (node-row id nil))
   ([id info]
    {:id (str id)
     :props (cond-> {:source "steamcommunity-playwright-cli"
-                    :workshop_id (str id)}
+                    :workshop_id (str id)
+                    :obsolete (obsolete-title? (:title info))}
              (:title info) (assoc :title (:title info))
              (:author info) (assoc :author (:author info))
              (:author_id info) (assoc :author_id (:author_id info))

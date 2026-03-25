@@ -48,6 +48,7 @@
    RETURN m.id AS id,
           m.workshop_id AS workshop_id,
           m.title AS title,
+          m.obsolete AS obsolete,
           m.author AS author,
           m.author_id AS author_id,
           m.author_profile_url AS author_profile_url,
@@ -62,13 +63,15 @@
 (def mod-outgoing-query
   "MATCH (m:Mod {id: $id})-[:REQUIRES]->(dep:Mod)
    RETURN dep.id AS id,
-          dep.title AS title
+          dep.title AS title,
+          dep.obsolete AS obsolete
    ORDER BY dep.id")
 
 (def mod-incoming-query
   "MATCH (src:Mod)-[:REQUIRES]->(m:Mod {id: $id})
    RETURN src.id AS id,
-          src.title AS title
+          src.title AS title,
+          src.obsolete AS obsolete
    ORDER BY src.id")
 
 (def mod-authors-query
@@ -102,7 +105,8 @@
 (def collection-items-query
   "MATCH (c:Collection {id: $id})-[:CONTAINS]->(m:Mod)
    RETURN m.id AS id,
-          m.title AS title
+          m.title AS title,
+          m.obsolete AS obsolete
    ORDER BY m.id")
 
 (def collection-authors-query
@@ -122,7 +126,8 @@
 (def author-mods-query
   "MATCH (a:Author {id: $id})-[:AUTHORED]->(m:Mod)
    RETURN m.id AS id,
-          m.title AS title
+          m.title AS title,
+          m.obsolete AS obsolete
    ORDER BY m.id")
 
 (def author-collections-query
