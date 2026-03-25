@@ -570,11 +570,15 @@ bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort tre
 
 # 指定用户的 Workshop Items 页面
 bb steam_import_neo4j.bb.clj \
-  --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600" \
+  --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?appid=108600" \
   --page 1 \
   --page-limit 1 \
   --max-depth 5 \
   --max-nodes 300
+
+# 从指定合集详情页导入(单个 URL，包含 collection 及其条目依赖)
+bb steam_import_single_neo4j.bb.clj \
+  --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825"
 
 # 指定用户的 Collections 页面
 bb steam_import_neo4j.bb.clj \
@@ -587,6 +591,7 @@ bb steam_import_neo4j.bb.clj \
 ```
 
 传 `--user-workshop-url` 时，seed 来源不再是 browse 列表，而是指定用户的 `myworkshopfiles` 页面分页结果。当前会提取 `Workshop Items` 标签页中的条目，再继续递归导入这些条目的依赖。
+如果 URL 形如 `https://steamcommunity.com/sharedfiles/filedetails/?id=...`，它是单个 Workshop/Collection 详情页，应使用 `steam_import_single_neo4j.bb.clj --url ...`；`--user-workshop-url` 适用于 `myworkshopfiles` 列表页。
 如果传 `--user-workshop-section collections`，则会提取用户 `Collections` 标签页中的 collection id，并复用现有 collection 导入逻辑。
 
 ### 导入单个 Workshop 到 Neo4j

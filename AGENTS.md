@@ -1,0 +1,19 @@
+These instructions apply to the entire repository unless a deeper `AGENTS.md` overrides them.
+- Make small, surgical changes that match the existing style.
+- Prefer updating existing scripts and utilities over introducing new tools.
+- Keep commands runnable from the repository root.
+- Use `rg`/`rg --files` for search instead of slower alternatives when possible.
+- Assume the repo is centered around Babashka/Clojure-style scripts and data-import workflows unless nearby files indicate otherwise.
+- Prefer existing `bb` tasks, scripts, and config files over ad hoc shell logic.
+- Avoid renaming files, moving directories, or changing command-line interfaces unless explicitly requested.
+- Do not add new dependencies unless they are required for the requested task.
+- Fix the root cause of the requested issue; avoid unrelated refactors.
+- Keep functions, filenames, and public interfaces stable unless the task requires a change.
+- Follow the formatting and naming patterns already used by adjacent files.
+- Update docs when behavior, commands, or setup steps change.
+- Run the narrowest relevant validation first.
+- If there are existing tests or runnable scripts for the affected area, use them before broader checks.
+- If validation cannot be run, note that clearly in the handoff.
+- Never commit, push, or delete major files unless the user explicitly asks.
+- Treat import scripts, credentials, and local data paths carefully.
+- Prefer reversible changes and call out any operation that could affect local data or running processes.
