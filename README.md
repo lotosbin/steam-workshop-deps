@@ -576,7 +576,7 @@ bb steam_import_neo4j.bb.clj \
   --max-depth 5 \
   --max-nodes 300
 
-# 指定合集
+# 从指定合集导入(注意区分单个WorkshopItem导入)
 bb steam_import_neo4j.bb.clj \
   --user-workshop-url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825" \
   --page 1 \
