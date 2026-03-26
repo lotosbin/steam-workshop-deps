@@ -551,6 +551,7 @@ bb steam_import_neo4j.bb.clj \
 导入脚本会自动读取项目根目录下的 `.env`，并在整个导入过程中复用一个 `playwright-cli` browser session。
 `--page-limit` 用于从 `--page` 开始连续抓取多页 workshop browse seed，再统一去重后做 BFS。当前默认抓前 `10` 页，且 browse 请求会带 `numperpage=30`。
 `--sort` 同时映射到 Steam browse URL 的 `actualsort` 和 `browsesort`。默认值是 `lastupdated`。
+导入 `Mod` 节点时会记录 `imported_at`；如果某个模组在过去 `1` 小时内已导入，则 BFS 会直接跳过该模组，避免重复抓取详情和依赖。
 常用值：
 - `lastupdated`: 最近更新
 - `totaluniquesubscribers`: 最多订阅
