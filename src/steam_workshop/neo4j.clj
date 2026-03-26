@@ -72,6 +72,13 @@
 (def assembled-edge-statement
   "UNWIND $rows AS row MERGE (a:Author {id: row.author_id}) MERGE (c:Collection {id: row.collection_id}) MERGE (a)-[:ASSEMBLED]->(c)")
 
+(def recent-mods-statement
+  "MATCH (m:Mod)
+   WHERE m.id IN $ids
+     AND m.imported_at IS NOT NULL
+     AND m.imported_at >= $cutoff
+   RETURN m.id AS id")
+
 (defn obsolete-title? [title]
   (boolean (and (some? title)
                 (re-find #"(?i)(obsolete|deprecat)" (str title)))))
@@ -83,6 +90,7 @@
     :props (cond-> {:source "steamcommunity-playwright-cli"
                     :workshop_id (str id)
                     :obsolete (obsolete-title? (:title info))}
+             info (assoc :imported_at (System/currentTimeMillis))
              (:title info) (assoc :title (:title info))
              (:author info) (assoc :author (:author info))
              (:author_id info) (assoc :author_id (:author_id info))
@@ -156,3 +164,10 @@
 (defn rows [query-result]
   (mapv (fn [row] (zipmap (:columns query-result) (:row row)))
         (:data query-result)))
+
+(defn recent-mod-ids [tx-url basic-auth ids cutoff]
+  (->> (query! tx-url basic-auth recent-mods-statement {:ids (mapv str ids)
+                                                        :cutoff cutoff})
+       rows
+       (keep :id)
+       set))

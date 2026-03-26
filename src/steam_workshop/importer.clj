@@ -163,6 +163,15 @@
   (println "POST assembled edges batch, count=" (count edges))
   (neo4j/post-statement! neo-tx-url neo-basic neo4j/assembled-edge-statement edges))
 
+(def cache-ttl-ms
+  (* 60 60 1000))
+
+(defn recent-mod-ids [tx-url basic-auth ids]
+  (if (seq ids)
+    (let [cutoff (- (System/currentTimeMillis) cache-ttl-ms)]
+      (neo4j/recent-mod-ids tx-url basic-auth ids cutoff))
+    #{}))
+
 (defn import-seeds! [tx-url basic-auth seed-ids opts session]
   (let [max-depth (:max-depth opts)
         max-nodes (:max-nodes opts)
@@ -172,16 +181,21 @@
       (println "没有可导入的 seed ids")
       (throw (ex-info "empty seed ids" {:opts opts})))
     (println "seed-count=" (count seed-ids))
-    (let [visited (atom (into #{} seed-ids))
-          queue (atom (mapv #(vector % 0) seed-ids))
-          node-buf (atom (mapv neo4j/node-row seed-ids))
+    (let [cached-seed-ids (recent-mod-ids tx-url basic-auth seed-ids)
+          fresh-seed-ids (vec (remove cached-seed-ids seed-ids))
+          _ (when (seq cached-seed-ids)
+              (println "skip recent imported seeds within 1h, count=" (count cached-seed-ids)))
+          visited (atom (into #{} seed-ids))
+          queue (atom (mapv #(vector % 0) fresh-seed-ids))
+          node-buf (atom (mapv neo4j/node-row fresh-seed-ids))
           author-buf (atom [])
           edge-buf (atom [])
           authored-edge-buf (atom [])
           details-cache (atom {})
           total-edges (atom 0)
           discovered-nodes (atom 0)
-          skipped-deps (atom 0)]
+          skipped-deps (atom 0)
+          skipped-recent (atom (count cached-seed-ids))]
       (when (seq @node-buf)
         (post-node-batch! tx-url basic-auth (vec @node-buf))
         (reset! node-buf []))
@@ -212,13 +226,18 @@
                     new-deps-vec (->> deps
                                       (remove #(contains? @visited %))
                                       vec)
+                    cached-new-deps-vec (vec (recent-mod-ids tx-url basic-auth new-deps-vec))
+                    stale-new-deps-vec (vec (remove (set cached-new-deps-vec) new-deps-vec))
                     remaining-slots (max 0 (- max-nodes @discovered-nodes))
-                    admitted-new-deps-vec (vec (take remaining-slots new-deps-vec))
-                    allowed-deps-vec (into known-deps-vec admitted-new-deps-vec)]
+                    admitted-new-deps-vec (vec (take remaining-slots stale-new-deps-vec))
+                    allowed-deps-vec (into known-deps-vec (into cached-new-deps-vec admitted-new-deps-vec))]
                 (doseq [d allowed-deps-vec]
                   (swap! edge-buf conj (neo4j/edge-row id d)))
-                (when (< (count admitted-new-deps-vec) (count new-deps-vec))
-                  (swap! skipped-deps + (- (count new-deps-vec) (count admitted-new-deps-vec))))
+                (when (seq cached-new-deps-vec)
+                  (swap! skipped-recent + (count cached-new-deps-vec))
+                  (swap! visited into cached-new-deps-vec))
+                (when (< (count admitted-new-deps-vec) (count stale-new-deps-vec))
+                  (swap! skipped-deps + (- (count stale-new-deps-vec) (count admitted-new-deps-vec))))
                 (when (seq admitted-new-deps-vec)
                   (swap! node-buf into (mapv neo4j/node-row admitted-new-deps-vec))
                   (swap! visited into admitted-new-deps-vec)
@@ -261,6 +280,7 @@
       (println "done")
       (println "visited nodes=" (count @visited))
       (println "discovered dependency nodes=" @discovered-nodes)
+      (println "skipped recently imported mods within 1h=" @skipped-recent)
       (println "skipped deps due to max-nodes=" @skipped-deps)
       (println "edges posted=" @total-edges))))
 
