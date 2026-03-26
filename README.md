@@ -591,6 +591,7 @@ bb steam_import_neo4j.bb.clj \
 ```
 
 传 `--user-workshop-url` 时，seed 来源不再是 browse 列表，而是指定用户的 `myworkshopfiles` 页面分页结果。当前会提取 `Workshop Items` 标签页中的条目，再继续递归导入这些条目的依赖。
+如果 URL 形如 `https://steamcommunity.com/sharedfiles/filedetails/?id=...`，它是单个 Workshop/Collection 详情页，应使用 `steam_import_single_neo4j.bb.clj --url ...`；`--user-workshop-url` 适用于 `myworkshopfiles` 列表页。
 如果传 `--user-workshop-section collections`，则会提取用户 `Collections` 标签页中的 collection id，并复用现有 collection 导入逻辑。
 
 ### 导入单个 Workshop 到 Neo4j
