@@ -6,4 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32.5",
+    "neo4j>=5.26.0",
 ]
+
+[project.scripts]
+workshop-deps = "main:main"
