@@ -80,9 +80,34 @@
 
 ## Traceability
 
-| REQ-ID | Phase | Status |
-|--------|-------|--------|
-| API-01 – API-09 | Phase 1 | ○ |
-| UI-01 – UI-12 | Phase 1 | ○ |
-| THEME-01 – THEME-04 | Phase 1 | ○ |
-| DEPLOY-01 – DEPLOY-04 | Phase 1 | ○ |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| API-01 | Phase 1 | Pending |
+| API-02 | Phase 1 | Pending |
+| API-03 | Phase 1 | Pending |
+| API-04 | Phase 1 | Pending |
+| API-05 | Phase 1 | Pending |
+| API-06 | Phase 1 | Pending |
+| API-07 | Phase 1 | Pending |
+| API-08 | Phase 1 | Pending |
+| API-09 | Phase 1 | Pending |
+| UI-01 | Phase 2 | Pending |
+| UI-02 | Phase 2 | Pending |
+| UI-03 | Phase 2 | Pending |
+| UI-04 | Phase 2 | Pending |
+| UI-05 | Phase 2 | Pending |
+| UI-06 | Phase 2 | Pending |
+| UI-07 | Phase 2 | Pending |
+| UI-08 | Phase 2 | Pending |
+| UI-09 | Phase 2 | Pending |
+| UI-10 | Phase 2 | Pending |
+| UI-11 | Phase 3 | Pending |
+| UI-12 | Phase 3 | Pending |
+| THEME-01 | Phase 3 | Pending |
+| THEME-02 | Phase 3 | Pending |
+| THEME-03 | Phase 3 | Pending |
+| THEME-04 | Phase 3 | Pending |
+| DEPLOY-01 | Phase 4 | Pending |
+| DEPLOY-02 | Phase 4 | Pending |
+| DEPLOY-03 | Phase 4 | Pending |
+| DEPLOY-04 | Phase 4 | Pending |
