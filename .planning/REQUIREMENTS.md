@@ -82,15 +82,15 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| API-01 | Phase 1 | Pending |
-| API-02 | Phase 1 | Pending |
-| API-03 | Phase 1 | Pending |
-| API-04 | Phase 1 | Pending |
-| API-05 | Phase 1 | Pending |
-| API-06 | Phase 1 | Pending |
-| API-07 | Phase 1 | Pending |
-| API-08 | Phase 1 | Pending |
-| API-09 | Phase 1 | Pending |
+| API-01 | Phase 1 | Done |
+| API-02 | Phase 1 | Done |
+| API-03 | Phase 1 | Done |
+| API-04 | Phase 1 | Done |
+| API-05 | Phase 1 | Done |
+| API-06 | Phase 1 | Done |
+| API-07 | Phase 1 | Done |
+| API-08 | Phase 1 | Done |
+| API-09 | Phase 1 | Done |
 | UI-01 | Phase 2 | Pending |
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 2 | Pending |

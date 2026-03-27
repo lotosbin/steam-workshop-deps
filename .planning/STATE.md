@@ -1,13 +1,28 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-03-27T14:42:25.130Z"
+progress:
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 2
+---
+
 # State — Steam Workshop Graph Explorer
 
 **Project:** Steam Workshop Graph Explorer
 **Core Value:** Users can find any mod's dependencies and dependents in seconds, with a visual graph that makes complex mod relationships immediately clear.
-**Current Focus:** Phase 1: Backend API
+**Current Focus:** Phase 01 — backend-api
 
 ---
 
 ## Current Position
 
+Phase: 2
+Plan: Not started
 | Field | Value |
 |-------|-------|
 | **Milestone** | v1.0 |

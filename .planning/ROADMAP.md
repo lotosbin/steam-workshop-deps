@@ -7,7 +7,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Backend API** — FastAPI proxy over Neo4j, all REST endpoints, read-only security
+- [x] **Phase 1: Backend API** — FastAPI proxy over Neo4j, all REST endpoints, read-only security
 - [ ] **Phase 2: Core UI** — Cytoscape graph, search, detail panel, depth control
 - [ ] **Phase 3: Polish & Theme** — Zomboid dark industrial aesthetic, CSS custom properties, URL state
 - [ ] **Phase 4: Deployment** — Docker image, nginx config, README
@@ -38,8 +38,8 @@
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-PROJECT-INIT-PLAN.md — Project scaffold: FastAPI, httpx, Neo4j client, CORS, health endpoint
-- [ ] 02-API-ENDPOINTS-PLAN.md — All 5 REST endpoints: /api/games, /api/mods/search, /api/mods/{id}, /api/graph/{id}, /api/graph/path
+- [x] 01-PROJECT-INIT-PLAN.md — Project scaffold: FastAPI, httpx, Neo4j client, CORS, health endpoint
+- [x] 02-API-ENDPOINTS-PLAN.md — All 5 REST endpoints: /api/games, /api/mods/search, /api/mods/{id}, /api/graph/{id}, /api/graph/path
 
 ---
 
@@ -114,7 +114,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend API | 0/2 | Not started | - |
+| 1. Backend API | 2/2 | Complete | 2026-03-27 |
 | 2. Core UI | 0/N | Not started | - |
 | 3. Polish & Theme | 0/N | Not started | - |
 | 4. Deployment | 0/N | Not started | - |

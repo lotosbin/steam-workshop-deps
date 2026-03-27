@@ -16,15 +16,18 @@ Users can find any mod's dependencies and dependents in seconds, with a visual g
 - ✓ Steam Workshop mod info parsing — existing `mod.info` / `workshop.txt` parser
 - ✓ Neo4j graph storage — existing import pipeline for mods, authors, collections
 - ✓ Steam Workshop page scraping — existing Playwright CLI pipeline
+- ✓ **Real-time Neo4j Queries** — Backend FastAPI proxy, all REST endpoints live (Phase 1)
+- ✓ **Game/Mod Search API** — `/api/games` and `/api/mods/search` (Phase 1)
+- ✓ **Mod Detail API** — `/api/mods/{workshop_id}` with 404/500 handling (Phase 1)
+- ✓ **Graph Neighborhood API** — `/api/graph/{id}?depth=N` BFS, bounded 200 nodes (Phase 1)
+- ✓ **Shortest Path API** — `/api/graph/path?from=&to=` via Cypher shortestPath (Phase 1)
 
 ### Active
 
-- [ ] **Graph Visualization UI** — Interactive Cytoscape.js graph showing mod nodes and REQUIRES edges
-- [ ] **Real-time Neo4j Queries** — Backend fetches live data from Neo4j read-only user
-- [ ] **Game/Mod Search** — Search mods by name, filter by game, tag, author
-- [ ] **Mod Detail Panel** — Click node to see mod title, author, description, stats
-- [ ] **Docker Deployment** — Single container serving frontend + backend, one-command launch
-- [ ] **Zomboid Visual Theme** — Dark industrial aesthetic matching Project Zomboid's gritty style
+- [ ] **Graph Visualization UI** — Interactive Cytoscape.js frontend (Phase 2)
+- [ ] **Mod Detail Panel UI** — Click node to see mod details in panel (Phase 2)
+- [ ] **Docker Deployment** — Single container serving frontend + backend (Phase 4)
+- [ ] **Zomboid Visual Theme** — Dark industrial aesthetic (Phase 3)
 
 ### Out of Scope
 
@@ -69,4 +72,4 @@ Steam Workshop → Babashka Importer → Neo4j → New Backend API → Cytoscape
 
 ---
 
-*Last updated: 2026-03-27 after initialization*
+*Last updated: 2026-03-27 after Phase 1 completion*
