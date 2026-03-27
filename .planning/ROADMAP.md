@@ -35,7 +35,11 @@
 7. All endpoints fail with HTTP 404 for unknown mod IDs and HTTP 500 with error message for Neo4j failures
 8. All Neo4j connections use read-only credentials from environment variables only
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 01-PROJECT-INIT-PLAN.md — Project scaffold: FastAPI, httpx, Neo4j client, CORS, health endpoint
+- [ ] 02-API-ENDPOINTS-PLAN.md — All 5 REST endpoints: /api/games, /api/mods/search, /api/mods/{id}, /api/graph/{id}, /api/graph/path
 
 ---
 
@@ -110,7 +114,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend API | 0/N | Not started | - |
+| 1. Backend API | 0/2 | Not started | - |
 | 2. Core UI | 0/N | Not started | - |
 | 3. Polish & Theme | 0/N | Not started | - |
 | 4. Deployment | 0/N | Not started | - |
