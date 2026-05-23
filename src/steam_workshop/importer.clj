@@ -306,7 +306,7 @@
         (import-seeds! tx-url basic-auth [(str id)] opts session)))))
 
 (defn import-single! [tx-url basic-auth id opts]
-  (let [session (str "sw-single-" (subs (str (UUID/randomUUID)) 0 8))]
+  (let [session (str "sw_single_" (subs (str (UUID/randomUUID)) 0 4))]
     (try
       (open-browser-session! session)
       (println "[1/4] inspect root page")
@@ -323,7 +323,7 @@
         user-workshop-section (:user-workshop-section opts)
         page (:page opts)
         page-limit (:page-limit opts)
-        session (str "sw-import-" (subs (str (UUID/randomUUID)) 0 8))]
+        session (str "sw_browse_" (subs (str (UUID/randomUUID)) 0 4))]
     (println "[1/4] fetch browse seeds")
     (println "sort=" sort "start-page=" page "page-limit=" page-limit)
     (when user-workshop-url
