@@ -84,12 +84,14 @@
                 (re-find #"(?i)(obsolete|deprecat)" (str title)))))
 
 (defn node-row
-  ([id] (node-row id nil))
-  ([id info]
+  ([id] (node-row id nil nil))
+  ([id info] (node-row id info nil))
+  ([id info app-id]
    {:id (str id)
     :props (cond-> {:source "steamcommunity-playwright-cli"
                     :workshop_id (str id)
                     :obsolete (obsolete-title? (:title info))}
+             app-id (assoc :app_id (str app-id))
              info (assoc :imported_at (System/currentTimeMillis))
              (:title info) (assoc :title (:title info))
              (:author info) (assoc :author (:author info))
@@ -102,22 +104,25 @@
              (:file_size info) (assoc :file_size (:file_size info))
              (:description info) (assoc :description (:description info)))}))
 
-(defn collection-row [id info]
-  {:id (str id)
-   :props (cond-> {:source "steamcommunity-playwright-cli"
-                   :workshop_id (str id)
-                   :page_type "collection"}
-            (:title info) (assoc :title (:title info))
-            (:author info) (assoc :author (:author info))
-            (:author_id info) (assoc :author_id (:author_id info))
-            (:author_profile_url info) (assoc :author_profile_url (:author_profile_url info))
-            (:canonical_url info) (assoc :canonical_url (:canonical_url info))
-            (:preview_url info) (assoc :preview_url (:preview_url info))
-            (:posted info) (assoc :posted (:posted info))
-            (:updated info) (assoc :updated (:updated info))
-            (:description info) (assoc :description (:description info))
-            (:collection_item_ids info) (assoc :collection_item_ids (:collection_item_ids info))
-            (:linked_workshop_ids info) (assoc :linked_workshop_ids (:linked_workshop_ids info)))})
+(defn collection-row
+  ([id info] (collection-row id info nil))
+  ([id info app-id]
+   {:id (str id)
+    :props (cond-> {:source "steamcommunity-playwright-cli"
+                    :workshop_id (str id)
+                    :page_type "collection"}
+             app-id (assoc :app_id (str app-id))
+             (:title info) (assoc :title (:title info))
+             (:author info) (assoc :author (:author info))
+             (:author_id info) (assoc :author_id (:author_id info))
+             (:author_profile_url info) (assoc :author_profile_url (:author_profile_url info))
+             (:canonical_url info) (assoc :canonical_url (:canonical_url info))
+             (:preview_url info) (assoc :preview_url (:preview_url info))
+             (:posted info) (assoc :posted (:posted info))
+             (:updated info) (assoc :updated (:updated info))
+             (:description info) (assoc :description (:description info))
+             (:collection_item_ids info) (assoc :collection_item_ids (:collection_item_ids info))
+             (:linked_workshop_ids info) (assoc :linked_workshop_ids (:linked_workshop_ids info)))}))
 
 (defn edge-row [from to]
   {:from (str from) :to (str to)})

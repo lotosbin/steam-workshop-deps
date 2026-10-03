@@ -1,543 +1,153 @@
-# 一个可以查看steam 上游戏mod依赖关系的工具, 目前支持Project Zomboid, 其他游戏后续添加
-# 目前功能:
-# - 查看模组依赖关系
-# - 查看模组被哪些模组依赖, 以及依赖关系图
-
 # Steam Workshop 依赖关系分析工具
 
-## 项目概述
-用于查找和浏览 Steam Workshop 创意工坊物品的依赖和被依赖关系的工具。
+用于抓取、存储和浏览 Steam 创意工坊物品的依赖与被依赖关系。目前以 **Project Zomboid（AppID 108600）** 为主，架构上不绑定具体游戏。
 
-## 核心功能
+数据流：
 
-### 1. 依赖关系解析
-- 解析 Workshop 物品的 `workshop.txt` 配置文件
-- 提取 `dependencies` 和 `required_items` 字段
-- 支持递归解析多层依赖关系
-
-### 2. 关系可视化
-- 依赖树展示（Tree View）
-- 依赖图展示（Graph View）
-- 反向依赖查询（谁依赖了这个 mod）
-
-### 3. 数据源支持
-- 本地 Workshop 目录扫描
-- Steam Web API 查询
-- 缓存机制减少 API 调用
-
-## Babashka 脚本
-
-### 获取单个 Workshop 信息
-```bash
-bb steam_fetch_workshop_info.bb.clj --id 3688270372
-bb steam_fetch_workshop_info.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext="
-bb steam_fetch_workshop_info.bb.clj --session sw1 --id 3688270372
+```
+Steam Workshop ──► Babashka 导入脚本 ──► Neo4j ──► FastAPI 后端 ──► Cytoscape.js 界面
+  (Playwright 抓取)      (BFS 递归)       (图数据库)      (只读代理)
 ```
 
-默认输出 JSON。
-脚本通过 `@playwright/cli` 抓取 Steam Community 页面，不依赖 Steam API Key。
-首次使用如果本机没有浏览器运行时，执行 `npx @playwright/cli install-browser`。
-项目通过 `bb.edn` 暴露 `src/` 下的公共 namespace，单条抓取、playwright-cli 调用和 `.env` 解析分别抽在：
-`src/steam_workshop/workshop.clj`
-`src/steam_workshop/playwright_cli.clj`
-`src/steam_workshop/dotenv.clj`
-Neo4j 写入和导入流程抽在：
-`src/steam_workshop/neo4j.clj`
-`src/steam_workshop/importer.clj`
+## 功能
 
-## 技术架构
+- **依赖解析**：抓取 `Required items` 递归构建依赖链
+- **反向依赖**：查询某个 mod 被哪些 mod 依赖
+- **合集解析**：识别 Collection 页面，写入 `CONTAINS` 关系
+- **作者图谱**：记录 `AUTHORED` / `ASSEMBLED` 关系
+- **循环检测**：本地目录模式下检测可达范围内的循环依赖
+- **定时导入**：Docker 容器每天 06:00 自动执行一次全量导入
+- **图数据库存储**：所有数据落在 Neo4j，支持 Cypher 自由查询
 
-### 架构图
-```
-┌─────────────────────────────────────────────────────────┐
-│                    用户界面层 (UI)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │  依赖树视图   │  │  依赖图视图   │  │  搜索界面     │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                            │
-┌─────────────────────────────────────────────────────────┐
-│                   业务逻辑层 (Service)                    │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │         DependencyAnalyzer (依赖分析器)            │  │
-│  │  - buildDependencyTree()                         │  │
-│  │  - findReverseDependencies()                     │  │
-│  │  - detectCircularDependencies()                  │  │
-│  └──────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────┐  │
-│  │         WorkshopItemResolver (物品解析器)          │  │
-│  │  - resolveItem(id) -> WorkshopItem               │  │
-│  │  - parseWorkshopTxt()                            │  │
-│  └──────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                            │
-┌─────────────────────────────────────────────────────────┐
-│                   数据访问层 (Data)                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ LocalScanner │  │ SteamWebAPI  │  │ CacheManager │  │
-│  │ (本地扫描)    │  │ (API查询)     │  │ (缓存管理)    │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                            │
-┌─────────────────────────────────────────────────────────┐
-│                      数据源                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Workshop目录  │  │ Steam API    │  │ 本地数据库    │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└─────────────────────────────────────────────────────────┘
-```
+## 技术栈
 
-## 数据模型
+| 层 | 技术 |
+|---|---|
+| 抓取 | `@playwright/cli`（无头 Chromium，无需 Steam API Key） |
+| 导入 | Babashka（Clojure 脚本，`*.bb.clj` + `src/steam_workshop/`） |
+| 存储 | Neo4j 5（HTTP transaction endpoint） |
+| 后端 | FastAPI + httpx（只读代理，隐藏 Neo4j 凭据） |
+| 本地 CLI | Python 3.12（`main.py`，分析本地 workshop 目录） |
+| 前端 | 原生 ES module + Cytoscape.js（`web/`，无需构建步骤） |
+| 部署 | Docker / Docker Compose |
 
-### WorkshopItem
-```swift
-struct WorkshopItem: Identifiable, Codable {
-    let id: String              // Workshop ID
-    let title: String           // 物品标题
-    let description: String?    // 描述
-    let dependencies: [String]  // 依赖的 Workshop ID 列表
-    let tags: [String]          // 标签
-    let author: String?         // 作者
-    let lastUpdated: Date?      // 最后更新时间
-    let localPath: String?      // 本地路径（如果已下载）
-}
-```
-
-### DependencyNode
-```swift
-struct DependencyNode: Identifiable {
-    let id: String
-    let item: WorkshopItem
-    var children: [DependencyNode]  // 依赖项
-    var depth: Int                  // 依赖深度
-    var isCircular: Bool            // 是否存在循环依赖
-}
-```
-
-### DependencyGraph
-```swift
-struct DependencyGraph {
-    var nodes: [String: WorkshopItem]           // 所有节点
-    var edges: [String: [String]]               // 依赖关系边
-    var reverseEdges: [String: [String]]        // 反向依赖边
-
-    func findPath(from: String, to: String) -> [String]?
-    func detectCycles() -> [[String]]
-}
-```
-
-## 核心算法
-
-### 1. 依赖树构建
-```swift
-class DependencyAnalyzer {
-    func buildDependencyTree(
-        rootId: String,
-        maxDepth: Int = 10
-    ) async throws -> DependencyNode {
-        var visited = Set<String>()
-        return try await buildNode(
-            id: rootId,
-            depth: 0,
-            maxDepth: maxDepth,
-            visited: &visited
-        )
-    }
-
-    private func buildNode(
-        id: String,
-        depth: Int,
-        maxDepth: Int,
-        visited: inout Set<String>
-    ) async throws -> DependencyNode {
-        // 检测循环依赖
-        let isCircular = visited.contains(id)
-        visited.insert(id)
-
-        // 解析物品信息
-        let item = try await resolver.resolveItem(id: id)
-
-        // 递归构建子节点
-        var children: [DependencyNode] = []
-        if depth < maxDepth && !isCircular {
-            for depId in item.dependencies {
-                let child = try await buildNode(
-                    id: depId,
-                    depth: depth + 1,
-                    maxDepth: maxDepth,
-                    visited: &visited
-                )
-                children.append(child)
-            }
-        }
-
-        return DependencyNode(
-            id: id,
-            item: item,
-            children: children,
-            depth: depth,
-            isCircular: isCircular
-        )
-    }
-}
-```
-
-### 2. 反向依赖查询
-```swift
-func findReverseDependencies(
-    itemId: String
-) async throws -> [WorkshopItem] {
-    // 扫描所有本地 Workshop 物品
-    let allItems = try await localScanner.scanAllItems()
-
-    // 查找依赖了目标物品的所有物品
-    return allItems.filter { item in
-        item.dependencies.contains(itemId)
-    }
-}
-```
-
-### 3. 循环依赖检测
-```swift
-func detectCircularDependencies(
-    itemId: String
-) async throws -> [[String]] {
-    var cycles: [[String]] = []
-    var visited = Set<String>()
-    var path: [String] = []
-
-    func dfs(id: String) async throws {
-        if path.contains(id) {
-            // 发现循环
-            let cycleStart = path.firstIndex(of: id)!
-            let cycle = Array(path[cycleStart...]) + [id]
-            cycles.append(cycle)
-            return
-        }
-
-        if visited.contains(id) { return }
-        visited.insert(id)
-        path.append(id)
-
-        let item = try await resolver.resolveItem(id: id)
-        for depId in item.dependencies {
-            try await dfs(id: depId)
-        }
-
-        path.removeLast()
-    }
-
-    try await dfs(id: itemId)
-    return cycles
-}
-```
-
-## 数据源实现
-
-### 1. 本地扫描器
-```swift
-class LocalWorkshopScanner {
-    let workshopPath: String
-
-    func scanAllItems() async throws -> [WorkshopItem] {
-        let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(atPath: workshopPath)
-
-        var items: [WorkshopItem] = []
-        for itemId in contents {
-            let itemPath = "\(workshopPath)/\(itemId)"
-            if let item = try? parseWorkshopItem(at: itemPath) {
-                items.append(item)
-            }
-        }
-        return items
-    }
-
-    func parseWorkshopItem(at path: String) throws -> WorkshopItem {
-        // 解析 workshop.txt 或 mod.info
-        let configPath = "\(path)/workshop.txt"
-        let content = try String(contentsOfFile: configPath)
-        return try parseWorkshopConfig(content, itemPath: path)
-    }
-}
-```
-
-### 2. Steam Web API 客户端
-```swift
-class SteamWebAPIClient {
-    let apiKey: String
-    let baseURL = "https://api.steampowered.com"
-
-    func getPublishedFileDetails(
-        itemIds: [String]
-    ) async throws -> [WorkshopItem] {
-        let endpoint = "\(baseURL)/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
-
-        var request = URLRequest(url: URL(string: endpoint)!)
-        request.httpMethod = "POST"
-
-        // 构建请求参数
-        var params = ["key": apiKey, "itemcount": "\(itemIds.count)"]
-        for (index, id) in itemIds.enumerated() {
-            params["publishedfileids[\(index)]"] = id
-        }
-
-        // 发送请求并解析响应
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return try parseAPIResponse(data)
-    }
-}
-```
-
-### 3. 缓存管理器
-```swift
-class WorkshopCacheManager {
-    private let cache = NSCache<NSString, WorkshopItem>()
-    private let diskCachePath: String
-
-    func get(id: String) -> WorkshopItem? {
-        // 先查内存缓存
-        if let item = cache.object(forKey: id as NSString) {
-            return item
-        }
-
-        // 再查磁盘缓存
-        return loadFromDisk(id: id)
-    }
-
-    func set(item: WorkshopItem) {
-        cache.setObject(item, forKey: item.id as NSString)
-        saveToDisk(item: item)
-    }
-}
-```
-
-## UI 实现方案
-
-### 1. SwiftUI (推荐)
-```swift
-struct DependencyTreeView: View {
-    @StateObject var viewModel: DependencyViewModel
-
-    var body: some View {
-        NavigationView {
-            List {
-                if let root = viewModel.rootNode {
-                    DependencyNodeRow(node: root)
-                }
-            }
-            .navigationTitle("依赖关系")
-            .searchable(text: $viewModel.searchText)
-        }
-    }
-}
-
-struct DependencyNodeRow: View {
-    let node: DependencyNode
-    @State private var isExpanded = true
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            ForEach(node.children) { child in
-                DependencyNodeRow(node: child)
-            }
-        } label: {
-            HStack {
-                Image(systemName: node.isCircular ? "exclamationmark.triangle" : "cube")
-                    .foregroundColor(node.isCircular ? .red : .blue)
-                Text(node.item.title)
-                Spacer()
-                Text("深度: \(node.depth)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-}
-```
-
-### 2. 依赖图可视化（使用 GraphViz 或 D3.js）
-```swift
-struct DependencyGraphView: View {
-    let graph: DependencyGraph
-
-    var body: some View {
-        // 使用 WebView 嵌入 D3.js 可视化
-        // 或使用 SwiftUI Canvas 自定义绘制
-        GraphCanvas(graph: graph)
-    }
-}
-```
-
-## 配置文件解析
-
-### workshop.txt 格式
-```
-version="1"
-id="2876234567"
-title="My Mod"
-description="Description here"
-tags={
-    "Mod"
-    "Multiplayer"
-}
-visibility="public"
-```
-
-### mod.info 格式（Project Zomboid）
-```
-name=My Mod
-id=MyModID
-description=Description here
-require=RequiredModID1,RequiredModID2
-```
-
-## 技术栈建议
-
-### 后端/CLI 工具
-- **语言**: Swift (命令行工具) 或 Python (脚本)
-- **数据存储**: SQLite (本地缓存)
-- **HTTP 客户端**: URLSession (Swift) 或 requests (Python)
-
-### 前端 GUI
-- **macOS**: SwiftUI + AppKit
-- **跨平台**: Electron + React + D3.js
-- **Web**: Next.js + React + Cytoscape.js
-
-### 图形可视化
-- **D3.js**: 强大的数据可视化库
-- **Cytoscape.js**: 专门用于图形网络可视化
-- **GraphViz**: 自动布局的图形工具
-
-## 项目结构
+## 目录结构
 
 ```
 steam-workshop-deps/
-├── README.md
-├── Package.swift (如果使用 Swift)
-├── requirements.txt (如果使用 Python)
-├── src/
-│   ├── models/
-│   │   ├── WorkshopItem.swift
-│   │   ├── DependencyNode.swift
-│   │   └── DependencyGraph.swift
-│   ├── services/
-│   │   ├── DependencyAnalyzer.swift
-│   │   ├── WorkshopItemResolver.swift
-│   │   └── CacheManager.swift
-│   ├── data/
-│   │   ├── LocalWorkshopScanner.swift
-│   │   ├── SteamWebAPIClient.swift
-│   │   └── ConfigParser.swift
-│   └── ui/
-│       ├── DependencyTreeView.swift
-│       ├── DependencyGraphView.swift
-│       └── SearchView.swift
-├── tests/
-│   ├── DependencyAnalyzerTests.swift
-│   └── ConfigParserTests.swift
-└── resources/
-    └── sample_workshop.txt
+├── main.sh                          # 定时导入的执行清单（8 条 bb 导入命令）
+├── Dockerfile                       # 定时导入容器镜像
+├── Dockerfile.web                   # Web 应用容器镜像（REST API + 前端）
+├── compose.yml                      # neo4j + importer + web 三个服务
+├── docker/
+│   ├── crontab                      # 调度定义（构建时注入 @SCHEDULE@）
+│   ├── entrypoint.sh                # 写环境快照 + 启动时触发一次 + tail 日志
+│   └── run-import.sh                # 加锁 → 加载快照 → 执行 main.sh → 记录日志
+├── src/steam_workshop/              # 公共 namespace
+│   ├── workshop.clj                 # 单页抓取与字段提取
+│   ├── playwright_cli.clj           # playwright-cli 封装
+│   ├── importer.clj                 # BFS 导入编排
+│   ├── neo4j.clj                    # Cypher 语句与写入
+│   └── dotenv.clj                   # .env 解析
+├── *.bb.clj                         # 顶层 CLI 入口
+├── main.py                          # 本地目录分析 CLI
+├── backend/                         # FastAPI 只读代理（生产环境同时托管 web/）
+└── web/                             # 前端单页应用（原生 ES module，无需构建）
+    ├── index.html
+    ├── src/                         # main / state / api / search / graph / detail / depth
+    └── styles/                      # base / layout / search / graph / detail
 ```
 
-## 使用示例
+## 快速开始
 
-### CLI 使用
+### 1. 依赖
+
 ```bash
-# 先准备本地 workshop 目录（以 Project Zomboid 为例）：
-# ~/.steam/steamapps/workshop/content/108600
-# 其中 108600 是游戏的 Steam AppID，每个 mod 是一个子目录（通常是数字 publishedFileId）。
+# Babashka
+brew install borkdude/brew/babashka
 
-# 输出依赖树（root 向下展开）
-$ workshop-deps tree --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "内部id 或 published_id"
-
-# 输出反向依赖（谁依赖了 target）
-$ workshop-deps reverse --workshop-dir "/path/to/steamapps/workshop/content/108600" --target "内部id 或 published_id"
-
-# 从 root 开始检测可达范围内的循环依赖
-$ workshop-deps cycles --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "内部id 或 published_id"
+# Playwright 浏览器（首次使用）
+npx @playwright/cli install-browser
 ```
 
-### Web MVP（Demo 图）
+> **浏览器渠道注意**：`playwright-cli` 默认使用 **chrome 渠道**（真实 Google Chrome，路径固定为 `/Applications/Google Chrome.app`），而不是自带 Chromium。若本机没有 Chrome，二选一：
+> - 安装 Chrome：`npx @playwright/cli install-browser chrome`（需要管理员权限）
+> - 或改用 Chromium：
+>   ```bash
+>   npx @playwright/cli install-browser chromium
+>   mkdir -p ~/.playwright
+>   echo '{ "browser": { "browserName": "chromium" } }' > ~/.playwright/cli.config.json
+>   ```
+> 定时导入容器已经在镜像内配置好此项，无需手动处理。
+
+### 2. 配置 `.env`
+
+复制 `.env.example` 并按需修改：
+
+```env
+NEO4J_AUTH=neo4j/你的密码
+NEO4J_URI=bolt://localhost:7687
+NEO4J_TX_URL=http://localhost:7474/db/neo4j/tx/commit
+```
+
+取值优先级：**系统环境变量 > `.env` 文件**。
+
+### 3. 启动全部服务
+
 ```bash
-# 启动一个静态服务（无需安装额外依赖）
-python3 -m http.server 5173 --directory web
-
-# 打开：
-# http://localhost:5173/index.html
+docker compose up -d
 ```
 
-### API 使用
-```swift
-let analyzer = DependencyAnalyzer()
+| 服务 | 说明 | 端口 |
+|---|---|---|
+| `neo4j` | 图数据库 + Neo4j Browser | 7474 / 7687 |
+| `importer` | 每天 06:00 执行 `main.sh` | — |
+| `web` | Web 界面 + REST API | 8080 → 容器 80 |
+| `cloudflared` | 把 `web` 发布到公网（需 `TUNNEL_TOKEN`） | — |
 
-// 构建依赖树
-let tree = try await analyzer.buildDependencyTree(rootId: "2876234567")
+启动后浏览器打开 **<http://localhost:8080>**（宿主端口可用 `WEB_PORT` 覆盖）。
 
-// 查找反向依赖
-let reverseDeps = try await analyzer.findReverseDependencies(itemId: "2876234567")
+> 首次启动时数据库是空的，Web 界面会提示还没有任何游戏数据 —— 先按下面「导入数据」跑一次导入。
 
-// 检测循环依赖
-let cycles = try await analyzer.detectCircularDependencies(itemId: "2876234567")
-```
+### 4. 本地开发（可选，不用容器）
 
-## 扩展功能
-
-### 1. 依赖冲突检测
-- 检测版本不兼容
-- 检测互斥的 mod
-
-### 2. 批量操作
-- 批量下载依赖
-- 批量更新 mod
-
-### 3. 依赖推荐
-- 基于依赖关系推荐相关 mod
-- 分析热门依赖组合
-
-### 4. 导出功能
-- 导出为 JSON/YAML
-- 导出为图片（PNG/SVG）
-- 导出为 Markdown 文档
-
-## 性能优化
-
-1. **并发处理**: 使用 async/await 并发解析多个物品
-2. **缓存策略**: 多级缓存（内存 + 磁盘）
-3. **增量更新**: 只更新变化的物品
-4. **懒加载**: 按需加载深层依赖
-
-## 下一步实施计划
-
-1. ✅ 完成架构设计文档
-2. ⬜ 实现数据模型
-3. ⬜ 实现本地扫描器
-4. ⬜ 实现依赖分析器
-5. ⬜ 实现基础 CLI 工具
-6. ⬜ 实现 GUI 界面
-7. ⬜ 添加 Steam Web API 支持
-8. ⬜ 添加缓存机制
-9. ⬜ 添加可视化功能
-10. ⬜ 编写测试用例
-
----
-
-**作者**: Claude
-**最后更新**: 2025-01-29
-
-
-- [] 从 https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B0%5D=Build+42&actualsort=lastupdated&browsesort=lastupdated&p=1 获取workshop item 列表,递归分析每个item的require item 并添加到neo4j
-
-### Babashka 一键导入到 Neo4j（MVP）
 ```bash
-# 前置：安装 babashka(bb)
-# playwright-cli 首次使用需要安装浏览器：
-#   npx @playwright/cli install-browser
-# .env 示例：
-#   NEO4J_AUTH=neo4j/你的密码
-#   NEO4J_URI=bolt://localhost:7687
-#   NEO4J_TX_URL=http://localhost:7474/db/neo4j/tx/commit
+# 后端 + 前端（FastAPI 会同时托管 web/ 静态页面）
+uv sync --project backend
+backend/.venv/bin/python -m uvicorn backend.app:app --reload --port 8000
+```
 
+需在仓库根目录启动，`backend/neo4j_client.py` 才会读到根目录的 `.env`。
+此时访问 <http://127.0.0.1:8000> 即为完整应用，接口文档在 <http://127.0.0.1:8000/docs>。
+
+前端是原生 ES module，**改完刷新页面即可**，没有构建步骤；仅需保证后端在跑（`/api/*` 同源）。
+
+## 定时导入容器
+
+`importer` 容器在**启动时立即触发一次**导入，之后每天 **06:00（Asia/Shanghai）** 再执行一次 `main.sh`。
+
+```bash
+docker compose logs -f importer           # 跟踪导入日志
+docker compose restart importer           # 重启会立刻再触发一次导入
+docker compose up -d --build importer     # 修改 main.sh 或 docker/ 后重新构建
+```
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `RUN_ON_STARTUP` | `true` | 设为 `false` 则只在 06:00 执行，重启不再触发 |
+
+行为说明：
+
+- `main.sh` 内是 **8 条串行导入**，单条耗时数十分钟，整体可能持续数小时
+- `run-import.sh` 用 `flock` 加锁，启动触发与定时触发**互斥**，不会重复跑
+- 导入日志写入容器内 `/var/log/workshop-import.log`，由 entrypoint `tail` 转发到容器 stdout
+- `--build-arg CRON_SCHEDULE="* * * * *"` 可构建测试镜像，验证调度链路而无需等到 06:00
+
+## Babashka 脚本
+
+### 批量导入（browse 列表递归）
+
+```bash
 bb steam_import_neo4j.bb.clj \
   --appid 108600 \
   --required-tag "Build 42" \
@@ -548,86 +158,199 @@ bb steam_import_neo4j.bb.clj \
   --max-nodes 300
 ```
 
-导入脚本会自动读取项目根目录下的 `.env`，并在整个导入过程中复用一个 `playwright-cli` browser session。
-`--page-limit` 用于从 `--page` 开始连续抓取多页 workshop browse seed，再统一去重后做 BFS。当前默认抓前 `10` 页，且 browse 请求会带 `numperpage=30`。
-`--sort` 同时映射到 Steam browse URL 的 `actualsort` 和 `browsesort`。默认值是 `lastupdated`。
-导入 `Mod` 节点时会记录 `imported_at`；如果某个模组在过去 `1` 小时内已导入，则 BFS 会直接跳过该模组，避免重复抓取详情和依赖。
-常用值：
-- `lastupdated`: 最近更新
-- `totaluniquesubscribers`: 最多订阅
-- `trend`: 热门
-`--max-nodes` 限制的是递归过程中新增的依赖节点数量，不包含初始 browse seed。
+会从 browse 页抓取 seed（browse 页已改为 React SSR 渲染，seed 直接解析内联的 `window.SSR.renderContext` query cache，不再依赖列表 DOM），再去重、BFS 递归抓依赖。常用 `--sort`：
 
-示例：
+| 值 | 含义 |
+|---|---|
+| `lastupdated` | 最近更新（默认） |
+| `totaluniquesubscribers` | 最多订阅 |
+| `trend` | 热门 |
+
+其他参数语义：
+
+- `--page-limit`：从 `--page` 起连续抓取的页数，browse 请求固定带 `numperpage=30`
+- `--max-nodes`：限制递归过程中**新增的依赖节点**数，不含初始 seed
+- `--sort` 同时映射到 browse URL 的 `actualsort` 与 `browsesort`
+- 写入 `Mod` 节点时记录 `imported_at`，1 小时内已导入的 mod 会被 BFS 跳过，避免重复抓取
+
+### 指定用户 / 合集作为 seed
+
 ```bash
-# 最近更新
-bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort lastupdated
-
-# 最多订阅
-bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort totaluniquesubscribers
-
-# 热门
-bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort trend
-
-# 指定用户的 Workshop Items 页面
+# 用户的 Workshop Items 页面
 bb steam_import_neo4j.bb.clj \
   --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?appid=108600" \
-  --page 1 \
-  --page-limit 1 \
-  --max-depth 5 \
-  --max-nodes 300
+  --page 1 --page-limit 1 --max-depth 5 --max-nodes 300
 
-# 从指定合集详情页导入(单个 URL，包含 collection 及其条目依赖)
-bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825"
-
-# 无聊的栀子 单人/多人联机通用模组合集
-bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3623026433"
-
-# 指定用户的 Collections 页面
+# 用户的 Collections 页面
 bb steam_import_neo4j.bb.clj \
   --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?section=collections&appid=108600" \
   --user-workshop-section collections \
-  --page 1 \
-  --page-limit 1 \
-  --max-depth 5 \
-  --max-nodes 300
+  --page 1 --page-limit 1 --max-depth 5 --max-nodes 300
 ```
 
-传 `--user-workshop-url` 时，seed 来源不再是 browse 列表，而是指定用户的 `myworkshopfiles` 页面分页结果。当前会提取 `Workshop Items` 标签页中的条目，再继续递归导入这些条目的依赖。
-如果 URL 形如 `https://steamcommunity.com/sharedfiles/filedetails/?id=...`，它是单个 Workshop/Collection 详情页，应使用 `steam_import_single_neo4j.bb.clj --url ...`；`--user-workshop-url` 适用于 `myworkshopfiles` 列表页。
-如果传 `--user-workshop-section collections`，则会提取用户 `Collections` 标签页中的 collection id，并复用现有 collection 导入逻辑。
+`--user-workshop-url` 用于 `myworkshopfiles` **列表页**；若是 `sharedfiles/filedetails/?id=...` 这种**详情页**，请用下面的单条导入。
 
-### 导入单个 Workshop 到 Neo4j
+### 单条导入
+
 ```bash
 bb steam_import_single_neo4j.bb.clj --id 3689745069
 bb steam_import_single_neo4j.bb.clj --id 3689745069 --max-depth 10 --max-nodes 300
 bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825"
 ```
 
-单条导入现在支持两类 sharedfiles 页面：
-- 普通 Workshop item：递归抓取 `Required items` 依赖链上的每一个 item，并为每个节点补全标题、作者、封面、发布时间等信息。
-- Collection 页面：自动识别为 `Collection` 节点，提取合集内条目，写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再继续递归抓取这些条目的 `Required items` 依赖。
+支持两类页面：
 
-导入过程中还会写入作者图谱：
-- `(:Author)-[:AUTHORED]->(:Mod)`
-- `(:Author)-[:ASSEMBLED]->(:Collection)`
+- **普通 Workshop item**：递归抓 `Required items` 依赖链，并补全标题、作者、封面、发布时间等
+- **Collection 页面**：自动识别为 `Collection` 节点，提取条目写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再递归抓这些条目的依赖
 
-顶层 `*.bb.clj` 只负责 CLI 参数解析；抓取、导入、Neo4j 写入等具体逻辑统一放在 `src/steam_workshop/`。
+### 抓取单页信息（不写库）
 
-### 查询单个节点在 Neo4j 中的关系
 ```bash
-bb steam_query_neo4j.bb.clj --id 3689745069
-bb steam_query_neo4j.bb.clj --id 3624259825
-bb steam_query_neo4j.bb.clj --id lotosbin
+bb steam_fetch_workshop_info.bb.clj --id 3688270372
+bb steam_fetch_workshop_info.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372"
+bb steam_fetch_workshop_info.bb.clj --session sw1 --id 3688270372   # 复用 session
 ```
 
-脚本会自动识别 `Mod`、`Collection`、`Author`：
-- `Mod`: 返回作者、所属合集、`requires`、`required_by`
-- `Collection`: 返回装配作者、`contains`
-- `Author`: 返回 `authored_mods`、`assembled_collections`
+默认输出 JSON。
 
-- [x] 获取单个workshop信息 https://steamcommunity.com/sharedfiles/filedetails/?id=3688270372&searchtext=
-- [x] 从合集链接导入 https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825 注意链接格式和单个workshop相似但是页面内容不通,需要区分处理
-- [x] 支持从热门获取列表 https://steamcommunity.com/workshop/browse/?appid=108600&requiredtags%5B0%5D=Build+42&actualsort=trend&p=1&numperpage=30
-- [x] 从指定用户的创意工坊页面导入 https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600
-- [X] 如果模组标题包含obsolete或者deprecate (不区分大小写), 则模组需要标记obsolte, 以方便在展示时区别显示
+### 查询节点关系
+
+```bash
+bb steam_query_neo4j.bb.clj --id 3689745069   # Mod
+bb steam_query_neo4j.bb.clj --id 3624259825   # Collection
+bb steam_query_neo4j.bb.clj --id lotosbin     # Author
+```
+
+自动识别 `Mod` / `Collection` / `Author`，分别返回作者与合集、`requires` / `required_by`、`contains`、`authored_mods` / `assembled_collections`。
+
+## 本地目录分析（Python CLI）
+
+不联网，直接分析本机已下载的 workshop 目录：
+
+```bash
+source .venv/bin/activate
+
+workshop-deps tree    --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "<内部id 或 published_id>"
+workshop-deps reverse --workshop-dir "/path/to/steamapps/workshop/content/108600" --target "<内部id 或 published_id>"
+workshop-deps cycles  --workshop-dir "/path/to/steamapps/workshop/content/108600" --root "<内部id 或 published_id>"
+```
+
+解析 `mod.info` / `workshop.txt` 中的 `require` 字段，在内存中构建依赖图。
+
+## 数据模型（Neo4j）
+
+### 节点
+
+| 标签 | 主要属性 |
+|---|---|
+| `:Mod` | `id` `workshop_id` `title` `author` `author_id` `author_profile_url` `canonical_url` `preview_url` `posted` `updated` `file_size` `description` `obsolete` `imported_at` `source` |
+| `:Collection` | `id` `workshop_id` `title` `author` `author_id` `canonical_url` `preview_url` `posted` `updated` `description` `page_type` `collection_item_ids` `linked_workshop_ids` |
+| `:Author` | `id` `name` `profile_url` `source` |
+
+### 关系
+
+```
+(:Mod)-[:REQUIRES]->(:Mod)
+(:Collection)-[:CONTAINS]->(:Mod)
+(:Author)-[:AUTHORED]->(:Mod)
+(:Author)-[:ASSEMBLED]->(:Collection)
+```
+
+标题中包含 `obsolete` 或 `deprecate`（不区分大小写）的模组会被标记 `obsolete: true`，便于前端区别展示。
+
+## Web 界面
+
+单页应用，无路由、无框架：原生 ES module + Cytoscape.js（CDN），由 FastAPI 以 `StaticFiles` 托管，与 `/api/*` 同源。
+
+| 控件 | 作用 |
+|---|---|
+| Game 下拉框 | 数据来自 `/api/games`，显示 `app_id (N mods)`；切换会清空搜索与画布 |
+| Search | 输入 300ms 防抖后查 `/api/mods/search`，下拉最多 20 条（含 `[Obsolete]` 标记） |
+| Depth 滑块 | 1–3，松开后按新深度重新拉取邻域图 |
+| Layout 下拉框 | `dagre`（默认，分层） / `breadthfirst` / `cose` |
+| 画布节点 | 点击打开右侧详情面板（标题、作者链接、发布/更新时间、文件大小、Steam 链接、预览图、obsolete 横幅） |
+| 统计栏 | Nodes / Edges / Mods / Cycles（Cycles 为前端用 Tarjan SCC 在返回的子图上计算） |
+
+实现要点：
+
+- 节点大小设为 `width/height: label`，否则 Cytoscape 默认固定 30×30，标题会溢出节点框
+- 稀疏图的自动 fit 会放得很大，已把自动缩放上限钳制在 1.3
+- 标题里的 `Steam Workshop::` 前缀在展示与搜索匹配时都会被去掉
+- 邻域图上限 200 节点，超出时顶部显示截断提示
+
+## 公网发布（Cloudflare Tunnel）
+
+用 Named Tunnel 把本机的 `web` 服务发布到固定域名。隧道运行在 compose 网络内，**只暴露 8080 上的 Web 应用**：Neo4j 与导入容器不经由隧道对外开放，Neo4j 凭据始终留在服务端。
+
+### 1. 在 Cloudflare 后台创建隧道
+
+1. 打开 **Zero Trust → Networks → Tunnels → Create a tunnel**，类型选 **Cloudflared**
+2. 起个名字（如 `steam-workshop`）并保存
+3. 复制页面给出的 **token**（`eyJhIjoi...` 开头的长串）
+4. 进入 **Public Hostname → Add a public hostname**：
+   - Subdomain / Domain：例如 `workshop` + `example.com`
+   - Service 选 **HTTP**，URL 填 **`web:80`**（compose 服务名，已在本机验证网络内可达）
+5. 保存
+
+### 2. 把 token 写进 `.env`
+
+```env
+TUNNEL_TOKEN=eyJhIjoi...你的token...
+```
+
+### 3. 启动
+
+```bash
+docker compose up -d cloudflared
+docker compose logs -f cloudflared     # 出现 Registered tunnel connection 即成功
+```
+
+随后访问 `https://workshop.example.com`。
+
+| 环境变量 | 说明 |
+|---|---|
+| `TUNNEL_TOKEN` | Named Tunnel 凭据。留空时 cloudflared 立即退出（退出码 255），按 Docker 退避策略重试，不影响其它服务 |
+
+安全提示：
+
+- 只对外发布 `web`；**不要**把 `neo4j` 也加进 Public Hostname。Neo4j 目前在宿主机监听所有网卡的 7474/7687，若要收紧可把 compose 里的端口改为 `127.0.0.1:7474:7474` 与 `127.0.0.1:7687:7687`
+- 应用**没有鉴权**：API 全是 GET，访客只能读图谱、无法改数据，但任何拿到域名的人都能查询
+- 前端从 `unpkg.com` 加载 Cytoscape，访问者的网络需要能访问该 CDN
+
+## 后端 API
+
+`backend/` 是只读的 FastAPI 代理，避免把 Neo4j 凭据暴露给前端；生产环境同时托管 `web/` 静态文件。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/games` | 游戏列表及各游戏 mod 数量 |
+| GET | `/api/mods/search?q=&game=` | 标题前缀搜索（最多 20 条） |
+| GET | `/api/mods/{workshop_id}` | 单个 mod 详情 |
+| GET | `/api/graph/{workshop_id}?depth=1..3` | 邻域依赖图（上限 200 节点，去重） |
+| GET | `/api/graph/path?from=&to=` | 两个 mod 间最短依赖路径 |
+
+> 路由顺序有要求：`/api/graph/path` 必须声明在 `/api/graph/{workshop_id}` 之前，否则会被当作 `workshop_id="path"` 匹配掉。
+
+## 环境说明
+
+- **Neo4j Community 版**：只支持单个数据库，且没有细粒度权限（`GRANT ROLE` 等为 Enterprise 功能）。若需要只读对外访问，只能用 `server.databases.read_only=neo4j` 配置项（需重启生效，且会同时禁止导入容器写入）
+- **Playwright 抓取**：依赖 Steam 页面结构，目前存在两套页面：详情页（`sharedfiles/filedetails`）仍是旧版 DOM，走 `workshop.clj` 的选择器；列表页（`/workshop/browse/`、`myworkshopfiles`）已改为 React SSR，seed 提取优先解析内联的 `window.SSR.renderContext`，旧版 DOM 选择器与 href 正则只作兜底。Steam 再次改版时优先检查这两条路径
+- **导入耗时**：单条导入需要数十分钟，全量 `main.sh` 可能持续数小时，建议交给定时容器执行
+
+## 路线图
+
+- [x] 单页抓取与字段提取
+- [x] 从 browse / 用户页面 / 合集导入
+- [x] 依赖递归导入与作者图谱
+- [x] obsolete 标记
+- [x] Docker 定时导入容器
+- [x] 后端只读 API
+- [x] 前端图可视化（搜索 / 邻域图 / 详情面板 / 深度与布局切换）
+- [x] 单容器 Docker 部署（API + 前端，宿主 8080）
+- [ ] URL 状态（可分享链接）与主题细化
+- [ ] 其他游戏适配
+
+---
+
+**最后更新**：2026-10-03

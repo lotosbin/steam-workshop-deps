@@ -1,0 +1,28 @@
+# Web 应用容器：FastAPI 单进程同时提供 REST API 和前端静态页面。
+#
+# - 前端为原生 ES module，无需构建步骤（Cytoscape 走 CDN）
+# - 容器内监听 80（DEPLOY-03），由 compose/`docker run` 映射到宿主端口
+# - Neo4j 连接信息全部由环境变量注入，不打进镜像
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+# 运行时依赖，与 backend/pyproject.toml 保持一致
+RUN pip install --no-cache-dir \
+      "fastapi>=0.115.0" \
+      "uvicorn[standard]>=0.30.0" \
+      "httpx>=0.27.0" \
+      "pydantic-settings>=2.0.0"
+
+# backend/ 提供 API，web/ 由 FastAPI 以 StaticFiles 挂在 /
+COPY backend ./backend
+COPY web ./web
+
+EXPOSE 80
+
+CMD ["python", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "80"]

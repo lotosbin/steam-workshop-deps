@@ -1,0 +1,7 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TZ=Asia/Shanghai
+
+# 定时执行 main.sh（@SCHEDULE@ 在构建时替换，默认 0 6 * * * = 每天 06:00）
+# - run-import.sh 内部自带 flock，与启动时的触发互斥
+@SCHEDULE@ root /usr/local/bin/run-import.sh

@@ -29,22 +29,40 @@
                        :body (subs body 0 (min 500 (count body)))})))
     body))
 
-(defn extract-browse-ids [^String html]
-  (let [re (re-pattern #"sharedfiles/filedetails/\?id=(\d+)")]
-    (->> (re-seq re html)
-         (map second)
-         (filter #(and % (re-matches #"\d+" %)))
-         distinct
-         vec)))
+(defn extract-browse-ids
+  "新版 browse 页面的结果在 window.SSR.renderContext 中；
+   旧版页面回退到 filedetails 链接正则。"
+  [^String html]
+  (if-let [ids (workshop/extract-ssr-browse-ids html)]
+    ids
+    (let [fallback-ids (->> (re-seq #"sharedfiles/filedetails/\?id=(\d+)" html)
+                            (map second)
+                            (filter #(and % (re-matches #"\d+" %)))
+                            distinct
+                            vec)]
+      (println "warn: 未解析到 window.SSR.renderContext，回退旧版 filedetails 正则，ids=" (count fallback-ids))
+      fallback-ids)))
 
 (def extract-workshop-list-ids-script
   (str
-   "() => JSON.stringify("
-   "Array.from(new Set("
-   "Array.from(document.querySelectorAll('.workshopBrowseItems .workshopItem a[href*=\"/sharedfiles/filedetails/?id=\"], .workshopBrowseItems .workshopItem a[href*=\"/workshop/filedetails/?id=\"]'))"
-   ".map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1])"
-   ".filter(Boolean)"
-   ")))"))
+   "() => JSON.stringify((() => {"
+   "  const uniq = (xs) => Array.from(new Set(xs));"
+   "  try {"
+   "    const ctx = window.SSR && window.SSR.renderContext;"
+   "    const qd = typeof ctx?.queryData === 'string' ? JSON.parse(ctx.queryData) : ctx?.queryData;"
+   "    const pick = (qs) => qs.flatMap((q) => (Array.isArray(q?.state?.data?.results) ? q.state.data.results : []));"
+   "    const queries = qd?.queries ?? [];"
+   "    const browse = queries.filter((q) => q?.queryKey?.[0] === 'workshop_browse');"
+   "    const ids = uniq((browse.length ? pick(browse) : pick(queries)).map((r) => r?.publishedfileid).filter(Boolean));"
+   "    if (ids.length) return ids;"
+   "  } catch (e) {}"
+   "  return uniq(Array.from(document.querySelectorAll("
+   "    '.workshopBrowseItems .workshopItem a[href*=\"/sharedfiles/filedetails/?id=\"], ' +"
+   "    '.workshopBrowseItems .workshopItem a[href*=\"/workshop/filedetails/?id=\"], ' +"
+   "    'a.ugc[data-publishedfileid]'))"
+   "    .map((a) => a.dataset.publishedfileid || (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1])"
+   "    .filter(Boolean));"
+   "})())"))
 
 (def extract-collection-list-ids-script
   (str
@@ -56,7 +74,7 @@
    "  text: (a.textContent || '').trim(),"
    "  parentClass: a.parentElement?.className ?? '',"
    "  className: a.className ?? ''"
-   "})))"
+   "}))"
    ".filter((row) => {"
    "  const id = (row.href.match(/[?&]id=(\\d+)/) || [null, null])[1];"
    "  if (!id) return false;"
@@ -176,7 +194,8 @@
   (let [max-depth (:max-depth opts)
         max-nodes (:max-nodes opts)
         sleep-ms (:sleep-ms opts)
-        batch-edges (:batch-edges opts)]
+        batch-edges (:batch-edges opts)
+        appid (:appid opts)]
     (when (empty? seed-ids)
       (println "没有可导入的 seed ids")
       (throw (ex-info "empty seed ids" {:opts opts})))
@@ -187,7 +206,7 @@
               (println "skip recent imported seeds within 1h, count=" (count cached-seed-ids)))
           visited (atom (into #{} seed-ids))
           queue (atom (mapv #(vector % 0) fresh-seed-ids))
-          node-buf (atom (mapv neo4j/node-row fresh-seed-ids))
+          node-buf (atom (mapv #(neo4j/node-row % nil appid) fresh-seed-ids))
           author-buf (atom [])
           edge-buf (atom [])
           authored-edge-buf (atom [])
@@ -212,7 +231,7 @@
                                                 distinct
                                                 vec)]
                                (println "fetched item=" id "depth=" depth "deps=" (count dep-ids))
-                               (swap! node-buf conj (neo4j/node-row id info))
+                               (swap! node-buf conj (neo4j/node-row id info appid))
                                (when-let [author-row (neo4j/author-row info)]
                                  (swap! author-buf conj author-row)
                                  (swap! authored-edge-buf conj (neo4j/authored-edge-row (:id author-row) id)))
@@ -239,7 +258,7 @@
                 (when (< (count admitted-new-deps-vec) (count stale-new-deps-vec))
                   (swap! skipped-deps + (- (count stale-new-deps-vec) (count admitted-new-deps-vec))))
                 (when (seq admitted-new-deps-vec)
-                  (swap! node-buf into (mapv neo4j/node-row admitted-new-deps-vec))
+                  (swap! node-buf into (mapv #(neo4j/node-row % nil appid) admitted-new-deps-vec))
                   (swap! visited into admitted-new-deps-vec)
                   (swap! discovered-nodes + (count admitted-new-deps-vec))
                   (swap! queue into (mapv (fn [d] [d (inc depth)]) admitted-new-deps-vec)))))
@@ -287,13 +306,14 @@
 (defn import-root! [tx-url basic-auth id opts session]
   (println "root-id=" id)
   (let [root-info (workshop/fetch-info id session)
-        page-type (:page_type root-info)]
+        page-type (:page_type root-info)
+        appid (:appid opts)]
     (println "root-page-type=" page-type)
     (if (= page-type "collection")
       (let [collection-item-ids (vec (distinct (:collection_item_ids root-info)))]
         (when (empty? collection-item-ids)
           (println "未从 collection 页面提取到任何条目"))
-        (post-collection-batch! tx-url basic-auth [(neo4j/collection-row id root-info)])
+        (post-collection-batch! tx-url basic-auth [(neo4j/collection-row id root-info appid)])
         (when-let [author-row (neo4j/author-row root-info)]
           (post-author-batch! tx-url basic-auth [author-row])
           (post-assembled-edge-batch! tx-url basic-auth [(neo4j/assembled-edge-row (:id author-row) id)]))

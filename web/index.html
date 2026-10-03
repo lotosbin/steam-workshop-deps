@@ -1,194 +1,91 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Workshop Graph Demo</title>
-    <style>
-      :root {
-        --bg: #101714;
-        --panel: rgba(247, 242, 231, 0.08);
-        --panel2: rgba(247, 242, 231, 0.12);
-        --text: rgba(248, 244, 236, 0.94);
-        --muted: rgba(248, 244, 236, 0.68);
-        --accent: #7cdbff;
-        --collection: #ffc46b;
-        --author: #7bf0b2;
-        --danger: #ff5c7a;
-      }
+    <title>Workshop Graph Explorer</title>
 
-      html,
-      body {
-        height: 100%;
-        background: radial-gradient(900px 500px at 15% 10%, rgba(124, 219, 255, 0.16), transparent 60%),
-          radial-gradient(700px 450px at 85% 20%, rgba(255, 196, 107, 0.15), transparent 55%),
-          radial-gradient(700px 450px at 55% 85%, rgba(123, 240, 178, 0.1), transparent 55%),
-          var(--bg);
-        color: var(--text);
-        margin: 0;
-        font-family: "Avenir Next", "Segoe UI", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      }
-
-      .wrap {
-        display: grid;
-        grid-template-columns: 320px 1fr;
-        height: 100%;
-      }
-
-      @media (max-width: 900px) {
-        .wrap {
-          grid-template-columns: 1fr;
-          grid-template-rows: auto 1fr;
-        }
-      }
-
-      .panel {
-        padding: 18px;
-        background: linear-gradient(180deg, var(--panel), transparent 70%);
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      @media (max-width: 900px) {
-        .panel {
-          border-right: none;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        }
-      }
-
-      h1 {
-        font-size: 16px;
-        letter-spacing: 0.7px;
-        margin: 0 0 10px 0;
-        font-weight: 700;
-        text-transform: uppercase;
-      }
-
-      .hint {
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.6;
-        margin-bottom: 14px;
-      }
-
-      label {
-        display: block;
-        margin: 14px 0 6px;
-        font-size: 13px;
-        color: var(--muted);
-      }
-
-      select,
-      input[type="number"],
-      button {
-        width: 100%;
-        box-sizing: border-box;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: var(--panel2);
-        color: var(--text);
-        padding: 10px 12px;
-        outline: none;
-      }
-
-      select:focus,
-      input[type="number"]:focus {
-        border-color: rgba(124, 219, 255, 0.55);
-        box-shadow: 0 0 0 3px rgba(124, 219, 255, 0.15);
-      }
-
-      .row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-
-      button {
-        cursor: pointer;
-        margin-top: 12px;
-        font-weight: 700;
-        border-color: rgba(124, 219, 255, 0.2);
-      }
-
-      button.secondary {
-        border-color: rgba(167, 139, 250, 0.2);
-      }
-
-      .stats {
-        margin-top: 14px;
-        font-size: 13px;
-        color: var(--muted);
-        line-height: 1.7;
-        padding-top: 12px;
-        border-top: 1px dashed rgba(255, 255, 255, 0.16);
-      }
-
-      .graph {
-        position: relative;
-      }
-
-      #cy {
-        position: absolute;
-        inset: 0;
-      }
-
-      .badge {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--muted);
-        font-size: 12px;
-      }
-    </style>
+    <link rel="stylesheet" href="./styles/base.css" />
+    <link rel="stylesheet" href="./styles/layout.css" />
+    <link rel="stylesheet" href="./styles/search.css" />
+    <link rel="stylesheet" href="./styles/graph.css" />
+    <link rel="stylesheet" href="./styles/detail.css" />
   </head>
 
   <body>
-    <div class="wrap">
-      <aside class="panel">
-        <h1>Workshop 依赖关系图（Demo）</h1>
-        <div class="hint">
-          Demo 现在同时展示 `Mod`、`Collection`、`Author` 三类节点，以及 `REQUIRES`、
-          `CONTAINS`、`AUTHORED`、`ASSEMBLED` 四类关系。
+    <div class="app">
+      <aside class="sidebar">
+        <h1 class="sidebar__title">Workshop Dependency Graph</h1>
+
+        <div class="field">
+          <label for="gameSelect">Game</label>
+          <select id="gameSelect" disabled></select>
         </div>
 
-        <label>Root</label>
-        <select id="rootSelect"></select>
-
-        <div class="row">
-          <div>
-            <label>Max Depth</label>
-            <input id="depthInput" type="number" min="1" max="10" step="1" value="4" />
-          </div>
-          <div>
-            <label>布局</label>
-            <select id="layoutSelect">
-              <option value="breadthfirst" selected>breadthfirst</option>
-              <option value="cose">cose</option>
-            </select>
-          </div>
+        <div class="field search">
+          <label for="searchInput">Search</label>
+          <input
+            id="searchInput"
+            type="text"
+            placeholder="Search mods..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div id="searchResults" class="search-results" hidden></div>
         </div>
 
-        <button id="btnRender">渲染图谱</button>
-        <button class="secondary" id="btnCenter">居中显示</button>
+        <div class="field">
+          <label for="depthSlider" id="depthLabel">Depth: 2</label>
+          <input id="depthSlider" type="range" min="1" max="3" step="1" value="2" />
+        </div>
 
-        <div class="stats">
-          <div><span class="badge">节点</span> <span id="statNodes">-</span></div>
-          <div><span class="badge">边</span> <span id="statEdges">-</span></div>
-          <div><span class="badge">循环标记</span> <span id="statCycles">-</span></div>
-          <div><span class="badge">Mod</span> <span id="statMods">-</span></div>
-          <div><span class="badge">Collection</span> <span id="statCollections">-</span></div>
-          <div><span class="badge">Author</span> <span id="statAuthors">-</span></div>
+        <div class="field">
+          <label for="layoutSelect">Layout</label>
+          <select id="layoutSelect">
+            <option value="dagre" selected>dagre</option>
+            <option value="breadthfirst">breadthfirst</option>
+            <option value="cose">cose</option>
+          </select>
+        </div>
+
+        <div class="sidebar__stats">
+          <div class="stat"><span class="badge">Nodes</span><span id="statNodes">-</span></div>
+          <div class="stat"><span class="badge">Edges</span><span id="statEdges">-</span></div>
+          <div class="stat"><span class="badge">Mods</span><span id="statMods">-</span></div>
+          <div class="stat"><span class="badge">Cycles</span><span id="statCycles">-</span></div>
         </div>
       </aside>
 
       <main class="graph">
         <div id="cy"></div>
+        <div class="truncation-banner" id="truncation" hidden></div>
+        <div class="overlay" id="overlay">
+          <div class="overlay__message" id="overlayMessage">
+            Select a mod to view its dependency graph
+          </div>
+        </div>
       </main>
     </div>
 
+    <aside id="detail" class="detail" hidden aria-label="Mod details">
+      <div class="detail__header">
+        <h2 class="detail__title" id="detailTitle"></h2>
+        <button class="detail__close" id="detailClose" type="button" aria-label="Close panel">
+          &#10005;
+        </button>
+      </div>
+      <div class="detail__obsolete" id="detailObsolete" hidden>
+        This mod is marked obsolete
+      </div>
+      <div class="detail__body" id="detailBody"></div>
+    </aside>
+
+    <!-- Vendored graph libraries (UI-SPEC: Cytoscape 3.29.2 via CDN).
+         Classic scripts run before the deferred module below. -->
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
-    <script type="module" src="./demoData.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

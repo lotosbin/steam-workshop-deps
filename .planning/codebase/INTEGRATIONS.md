@@ -23,6 +23,8 @@
 - Purpose: Paginated listing to discover seed IDs for import
 - SDK/Client: Direct HTTP GET via `java.net.http.HttpClient` in `src/steam_workshop/importer.clj`
 - Auth: None required
+- Page layout: React SSR. Results are embedded in the inline script `window.SSR.renderContext=JSON.parse("...")` under the dehydrated query cache (`queryData` -> `queries[] -> state.data.results[]`). Parsed by `steam-workshop.workshop/extract-ssr-browse-ids` (HTML path) and by `extract-workshop-list-ids-script` (browser path); legacy `.workshopBrowseItems .workshopItem` DOM selectors and the `filedetails/?id=` href regex remain as fallbacks for the old layout.
+- Note: detail pages (`sharedfiles/filedetails`, collections included) still use the legacy DOM, so `extract-json-script` keeps its class-based selectors; `og:description` was dropped there, so description falls back to `.workshopItemDescription`.
 
 ## Data Storage
 

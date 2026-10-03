@@ -16,6 +16,56 @@ services:
       - neo4j_logs:/logs
       - neo4j_plugins:/plugins
 
+  # 定时导入容器：每天 06:00 (Asia/Shanghai) 执行 main.sh
+  importer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: steam-workshop-importer:latest
+    container_name: steam-workshop-importer
+    restart: unless-stopped
+    depends_on:
+      - neo4j
+    environment:
+      - TZ=Asia/Shanghai
+      - NEO4J_AUTH=${NEO4J_AUTH}
+      # 容器内通过 service name 访问 Neo4j（覆盖 .env 里的 localhost）
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_TX_URL=http://neo4j:7474/db/neo4j/tx/commit
+      # 启动时立即触发一次导入；设为 false 则只在 06:00 定时执行
+      - RUN_ON_STARTUP=${RUN_ON_STARTUP:-true}
+
+  # Web 应用：FastAPI 同时提供 REST API 与前端页面（容器内 80）
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: steam-workshop-web:latest
+    container_name: steam-workshop-web
+    restart: unless-stopped
+    depends_on:
+      - neo4j
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    environment:
+      - TZ=Asia/Shanghai
+      - NEO4J_AUTH=${NEO4J_AUTH}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_TX_URL=http://neo4j:7474/db/neo4j/tx/commit
+
+  # Cloudflare Tunnel：把 web 发布到公网（Named Tunnel，需 TUNNEL_TOKEN）
+  #
+  # 隧道在 Cloudflare Zero Trust 后台创建，Public Hostname 指向 http://web:80。
+  # 未设置 TUNNEL_TOKEN 时 cloudflared 会立即退出（退出码 255）并按 Docker
+  # 退避策略重试，不影响其它服务；配好 token 后自动恢复。
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: steam-workshop-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - web
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:-}
+
 volumes:
   neo4j_data:
   neo4j_logs:

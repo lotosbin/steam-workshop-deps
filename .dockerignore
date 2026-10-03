@@ -1,0 +1,13 @@
+# 构建上下文裁剪。
+# Dockerfile（导入容器）与 Dockerfile.web（Web 应用）共用这个上下文，
+# 因此这里只排除体积大或含敏感信息的内容。
+.git
+.gitignore
+.venv
+backend/.venv
+.playwright-cli
+.planning
+.env
+.env.*
+*.md
+.python-version

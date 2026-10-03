@@ -139,3 +139,21 @@ async def run_query(
         raise Neo4jError(errors=errors, statement=statement)
     results: list[dict[str, Any]] = body.get("results", [])
     return results[0] if results else {"columns": [], "data": []}
+
+
+def rows_as_dicts(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert a Neo4j result into row dicts keyed by column name.
+
+    The HTTP transaction endpoint returns rows as *positional* arrays, with the
+    column names in a separate ``columns`` list::
+
+        {"columns": ["workshop_id", "title"],
+         "data": [{"row": ["123", "Some mod"]}]}
+
+    so reading by alias requires zipping the two together.
+    """
+    columns = result.get("columns", [])
+    return [
+        dict(zip(columns, entry.get("row", [])))
+        for entry in result.get("data", [])
+    ]
