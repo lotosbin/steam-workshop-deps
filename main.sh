@@ -20,6 +20,10 @@ bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfile
 
 # 无聊的栀子 单人/多人联机通用模组合集
 bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3623026433"
+# 云猫咖
+bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3799405129"
+# 九九
+bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3815654390"
 
 # 指定用户的 Collections 页面
 bb steam_import_neo4j.bb.clj \
