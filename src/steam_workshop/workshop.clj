@@ -134,6 +134,67 @@
         (some->> (re-find #"steamcommunity\.com/id/([^/?#]+)" s)
                  second))))
 
+(def ^:private page-probe-script
+  "() => JSON.stringify({title: document.title, text: (document.body?.innerText || '').slice(0, 300)})")
+
+(defn- fetch-info-once
+  "在已就绪的 session 上抓一次详情页；页面为空壳（429 限流/登录墙）时抛出带 :page-text 的异常。"
+  [id session]
+  (let [eval-result (pw/retry! 2 #(pw/eval! session extract-json-script))
+        raw-result (pw/extract-result (:out eval-result))
+        json-text (when raw-result (json/parse-string raw-result))
+        data (when json-text (json/parse-string json-text true))]
+    (when-not data
+      (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
+                      {:id id :stdout (:out eval-result)})))
+    (when-not (or (:title data) (:author data) (seq (:required_item_ids data)))
+      ;; 429 限流时 Steam 会返回空壳页；把页面文本带上，供 rate-limited? 识别并退避重试
+      (let [probe (some-> (pw/eval! session page-probe-script) :out pw/extract-result)]
+        (throw (ex-info "详情页未渲染出内容（Steam 429 限流或登录墙）"
+                        {:id id
+                         :title (:title data)
+                         :page-text probe
+                         :stdout (some-> (:out eval-result)
+                                         (subs 0 (min 300 (count (:out eval-result)))))}))))
+    data))
+
+(defn- normalize-info
+  "把 extract-json-script 的原始字段整理成导入用的结构。"
+  [id data]
+  (let [page-type (or (:page_type data) "workshop_item")
+        author-profile-url (some-> data :author_profile_url not-empty)
+        author-id (or (extract-author-id-from-url author-profile-url)
+                      (some-> data :author not-empty))
+        required-ids (vec (filter #(and % (re-matches #"\d+" %))
+                                  (:required_item_ids data)))
+        collection-item-ids (vec (filter #(and % (re-matches #"\d+" %))
+                                         (:collection_item_ids data)))
+        linked-ids (vec (filter #(and % (re-matches #"\d+" %))
+                                (:linked_workshop_ids data)))
+        dependency-ids (if (= page-type "collection")
+                         collection-item-ids
+                         (vec (remove #(= % id) required-ids)))
+        ;; 详情页右侧「See all N collections」面板 -> 反向发现包含本项目的父合集
+        parent-collections (let [pc (:parent_collections data)
+                                 count (some-> (or (:url_count pc) (:count pc)) str not-empty)]
+                             (cond-> {}
+                               count (assoc :parent_collections_count
+                                            (try (Long/parseLong count)
+                                                 (catch Exception _ nil)))
+                               (some-> (:browse_url pc) not-empty)
+                               (assoc :parent_collections_browse_url (:browse_url pc))))]
+    (assoc data
+           :id id
+           :page_type page-type
+           :author_profile_url author-profile-url
+           :author_id author-id
+           :required_item_ids required-ids
+           :collection_item_ids collection-item-ids
+           :dependency_ids dependency-ids
+           :linked_workshop_ids linked-ids
+           :parent_collections (not-empty parent-collections)
+           :source "steamcommunity-playwright-cli")))
+
 (defn fetch-info
   ([id] (fetch-info id nil))
   ([id session]
@@ -141,59 +202,15 @@
          owned-session? (str/blank? session)
          session (or (not-empty session) (str "sw-" (subs (str (UUID/randomUUID)) 0 8)))]
      (try
-       ;; Steam 偶发 60s 导航超时（见容器日志的 TimeoutError）：超时就重试，
-       ;; 自己持有的 session 先关掉重开，借用的 session 直接重新 goto。
+       ;; 导航 + 解析 + 空壳页判定整体重试：Steam 偶发 60s 超时、429 限流时
+       ;; 退避后重开页面再来；自持 session 每次重试都关掉重开，借用的直接 goto。
        (pw/retry! 3
                   (fn []
                     (if owned-session?
                       (do (pw/close-session! session)
                           (pw/open-session! session url))
-                      (pw/goto! session url))))
-       (let [eval-result (pw/retry! 2 #(pw/eval! session extract-json-script))
-             raw-result (pw/extract-result (:out eval-result))
-             json-text (when raw-result (json/parse-string raw-result))
-             data (when json-text (json/parse-string json-text true))
-             _ (when-not data
-                 (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
-                                 {:stdout (:out eval-result)})))
-             _ (when-not (or (:title data) (:author data) (seq (:required_item_ids data)))
-                 (throw (ex-info "详情页未渲染出内容（可能是 Steam 登录墙或返回了错误页）"
-                                 {:id id
-                                  :title (:title data)
-                                  :stdout (some-> (:out eval-result) (subs 0 (min 300 (count (:out eval-result)))))})))
-             page-type (or (:page_type data) "workshop_item")
-             author-profile-url (some-> data :author_profile_url not-empty)
-             author-id (or (extract-author-id-from-url author-profile-url)
-                           (some-> data :author not-empty))
-             required-ids (vec (filter #(and % (re-matches #"\d+" %))
-                                       (:required_item_ids data)))
-             collection-item-ids (vec (filter #(and % (re-matches #"\d+" %))
-                                              (:collection_item_ids data)))
-             linked-ids (vec (filter #(and % (re-matches #"\d+" %))
-                                     (:linked_workshop_ids data)))
-             dependency-ids (if (= page-type "collection")
-                              collection-item-ids
-                              (vec (remove #(= % id) required-ids)))
-             ;; 详情页右侧「See all N collections」面板 -> 反向发现包含本项目的父合集
-             parent-collections (let [pc (:parent_collections data)
-                                      count (some-> (or (:url_count pc) (:count pc)) str not-empty)]
-                                  (cond-> {}
-                                    count (assoc :parent_collections_count
-                                                 (try (Long/parseLong count)
-                                                      (catch Exception _ nil)))
-                                    (some-> (:browse_url pc) not-empty)
-                                    (assoc :parent_collections_browse_url (:browse_url pc))))]
-         (assoc data
-                :id id
-                :page_type page-type
-                :author_profile_url author-profile-url
-                :author_id author-id
-                :required_item_ids required-ids
-                :collection_item_ids collection-item-ids
-                :dependency_ids dependency-ids
-                :linked_workshop_ids linked-ids
-                :parent_collections (not-empty parent-collections)
-                :source "steamcommunity-playwright-cli"))
+                      (pw/goto! session url))
+                    (normalize-info id (fetch-info-once id session))))
        (finally
          (when owned-session?
            (pw/close-session! session)))))))

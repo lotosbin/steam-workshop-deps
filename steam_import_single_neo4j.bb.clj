@@ -35,6 +35,7 @@
          opts {:max-depth 10
                :max-nodes 300
                :sleep-ms 200
+               :rate-limit-cooldown-ms 300000
                :batch-edges 80}]
     (if (empty? xs)
       opts
@@ -47,6 +48,7 @@
           (= k "--max-depth") (recur more (assoc opts :max-depth (Integer/parseInt v)))
           (= k "--max-nodes") (recur more (assoc opts :max-nodes (Integer/parseInt v)))
           (= k "--sleep-ms") (recur more (assoc opts :sleep-ms (Integer/parseInt v)))
+          (= k "--rate-limit-cooldown-ms") (recur more (assoc opts :rate-limit-cooldown-ms (Long/parseLong v)))
           (= k "--batch-edges") (recur more (assoc opts :batch-edges (Integer/parseInt v)))
           (and (not (str/starts-with? (str k) "--")) (nil? (:id opts)) (nil? (:url opts))) (recur (cons v more) (assoc opts :id k))
           :else (throw (ex-info "未知参数" {:arg k :value v})))))))

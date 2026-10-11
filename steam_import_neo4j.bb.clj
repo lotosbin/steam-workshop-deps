@@ -14,6 +14,8 @@
 ;;   bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort totaluniquesubscribers --max-depth 5 --max-nodes 300
 ;;   bb steam_import_neo4j.bb.clj --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?appid=108600" --max-depth 5 --max-nodes 300
 ;;   bb steam_import_neo4j.bb.clj --user-workshop-url "https://steamcommunity.com/id/Akyrohunter/myworkshopfiles/?section=collections&appid=108600" --user-workshop-section collections --max-depth 5 --max-nodes 300
+;;
+;; 命中 Steam 429 限流时，后续抓取会统一等待 --rate-limit-cooldown-ms（默认 300000 = 5 分钟）。
 
 (require '[clojure.string :as str]
          '[steam-workshop.dotenv :as dotenv]
@@ -75,6 +77,7 @@
                      :max-depth 5
                      :max-nodes 300
                      :sleep-ms 200
+                     :rate-limit-cooldown-ms 300000
                      :batch-edges 80})]
     (loop [xs argv]
       (if (empty? xs)
@@ -93,6 +96,7 @@
             (= k "--max-depth") (swap! args assoc :max-depth (Integer/parseInt v))
             (= k "--max-nodes") (swap! args assoc :max-nodes (Integer/parseInt v))
             (= k "--sleep-ms") (swap! args assoc :sleep-ms (Integer/parseInt v))
+            (= k "--rate-limit-cooldown-ms") (swap! args assoc :rate-limit-cooldown-ms (Long/parseLong v))
             (= k "--batch-edges") (swap! args assoc :batch-edges (Integer/parseInt v))
             :else (throw (ex-info "未知参数" {:arg k :value v})))
           (recur more))))))

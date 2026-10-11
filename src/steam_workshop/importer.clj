@@ -224,6 +224,41 @@
               (println "warn: 父合集列表浏览器兜底失败" (.getMessage ex))
               nil))))))
 
+(def ^:private rate-limit-note
+  "记录最近一次命中 Steam 429 的时间；import-seeds! 用它做全局退避，
+   避免每个条目各自等待、把限流越拖越久。"
+  (atom 0))
+
+(def ^:dynamic *cooldown-ms*
+  "命中 429 后，后续所有页面抓取要统一等待的冷却时间（0 表示关闭）。"
+  0)
+
+(defn- note-rate-limit! []
+  (reset! rate-limit-note (System/currentTimeMillis)))
+
+(defn- rate-limit-gate!
+  "若最近命中过 429，则统一等到冷却结束，让限流有时间恢复。"
+  []
+  (when (pos? (long *cooldown-ms*))
+    (let [until (+ (long @rate-limit-note) (long *cooldown-ms*))
+          wait (- until (System/currentTimeMillis))]
+      (when (pos? wait)
+        (println "warn: 处于 429 限流冷却中，等待" (long (/ wait 1000)) "s")
+        (Thread/sleep (long wait))))))
+
+(defn- fetch-info-gated
+  "抓详情页，并在命中 429 时记下时间点，供后续请求统一冷却。"
+  [id session]
+  (rate-limit-gate!)
+  (try
+    (let [info (workshop/fetch-info id session)]
+      (reset! rate-limit-note 0)
+      info)
+    (catch Exception ex
+      (when (pw/rate-limited? ex)
+        (note-rate-limit!))
+      (throw ex))))
+
 (defn- expand-parent-collections!
   "反向发现：item 详情页里「See all N collections / N 个项目依赖此项目」的链接。
    只展开一层：把这些父合集（以及它们的 CONTAINS 条目）纳入图，
@@ -245,7 +280,7 @@
         (swap! seen-collections into collection-ids)
         (doseq [coll-id pending-ids]
           (let [coll-info (or (get @details-cache coll-id)
-                              (let [ci (workshop/fetch-info coll-id session)]
+                              (let [ci (fetch-info-gated coll-id session)]
                                 (swap! details-cache assoc coll-id ci)
                                 (when (pos? (:sleep-ms opts))
                                   (Thread/sleep (:sleep-ms opts)))
@@ -288,7 +323,8 @@
         {:collection-ids @imported}))))
 
 (defn import-seeds! [tx-url basic-auth seed-ids opts session]
-  (let [max-depth (:max-depth opts)
+  (binding [*cooldown-ms* (long (or (:rate-limit-cooldown-ms opts) 300000))]
+   (let [max-depth (:max-depth opts)
         max-nodes (:max-nodes opts)
         sleep-ms (:sleep-ms opts)
         batch-edges (:batch-edges opts)
@@ -314,6 +350,7 @@
           details-cache (atom {})
           seen-collections (atom #{})
           failed-items (atom #{})
+          rate-limited-items (atom #{})
           fetch-attempts (atom {})
           parent-collection-budget-off? (zero? max-nodes)
           total-edges (atom 0)
@@ -332,17 +369,21 @@
               (let [cached-info (get @details-cache id ::miss)
                     info (if (= ::miss cached-info)
                            (try
-                             (workshop/fetch-info id session)
+                             (fetch-info-gated id session)
                              (catch Exception ex
                                ;; 单个条目失败（超时/限流/登录墙）不该让整轮导入中断
+                               (when (pw/rate-limited? ex)
+                                 (swap! rate-limited-items conj id))
                                (swap! failed-items conj id)
                                (println "warn: item=" id "depth=" depth
                                         "抓取失败:" (.getMessage ex))
                                nil))
                            cached-info)]
                 (if (nil? info)
-                  ;; 首次失败后重排队重试 1 次，仍失败则跳过（并记录到 failed items）
+                  ;; 首次失败后重排队重试 1 次；429 限流不重排（避免火上浇油），
+                  ;; 交给下一轮导入或冷却后由 gate 统一处理
                   (when (and (<= depth max-depth)
+                             (not (contains? @rate-limited-items id))
                              (< (long (get @fetch-attempts id 0)) 1))
                     (swap! fetch-attempts update id (fnil inc 0))
                     (swap! queue conj [id depth]))
@@ -455,9 +496,11 @@
       (println "discovered dependency nodes=" @discovered-nodes)
       (println "parent collections=" (count @seen-collections))
       (println "failed items (skipped)=" (count @failed-items) (vec (take 20 @failed-items)))
+      (println "rate-limited items=" (count @rate-limited-items)
+               "(建议等限流恢复后重跑；冷却时间=" (long (/ (long *cooldown-ms*) 1000)) "s)")
       (println "skipped recently imported mods within 1h=" @skipped-recent)
       (println "skipped deps due to max-nodes=" @skipped-deps)
-      (println "edges posted=" @total-edges))))
+      (println "edges posted=" @total-edges)))))
 
 (defn import-root! [tx-url basic-auth id opts session]
   (println "root-id=" id)

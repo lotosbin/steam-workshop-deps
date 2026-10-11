@@ -148,9 +148,12 @@ docker compose up -d --build importer     # 修改 main.sh 或 docker/ 后重新
 | 失败场景 | 行为 |
 |---|---|
 | 详情页导航 60s 超时（`TimeoutError`） | 自动重试最多 3 次，退避 2s/4s |
-| HTTP 5xx / 429 / 网络超时（browse、父合集列表） | 重试 1 次，退避 3s |
-| 单个条目重试后仍失败（登录墙、限流、页面异常） | 打印 `warn` 并跳过，**不中断 BFS**，结束时汇总 `failed items (skipped)= N` |
+| HTTP 5xx / 网络超时（browse、父合集列表） | 重试 1 次，退避 3s |
+| **Steam 429 限流**（返回空壳页 / `HTTP status: 429`） | 识别为限流：单次重试按 90s→180s→360s 退避；并且**后续所有抓取统一等待 `--rate-limit-cooldown-ms`（默认 300000 = 5 分钟）**才继续，让限流有时间恢复 |
+| 单个条目重试后仍失败（登录墙、持续限流、页面异常） | 打印 `warn` 并跳过，**不中断 BFS**，结束时汇总 `failed items (skipped)= N`；限流条目不重排队，另计 `rate-limited items= N` |
 | `myworkshopfiles` 抓不到任何条目（未登录必然如此） | 打印 `warn` 说明需要登录态；该任务抛 `empty seed ids` 结束，但 `main.sh` 会继续跑后续任务 |
+
+> 容器从数据中心 IP 访问 Steam 时**很容易被 429 限流**：表现为 `### Page` 里 `HTTP status: 429 Too Many Requests`、`document.title = "Steam Community"`，抓取结果全是空值。此时不要反复手动重跑（只会加深限流），等冷却结束后再跑。冷却时长可用 `--rate-limit-cooldown-ms` 调整。
 
 > 容器内没有 Steam 登录会话，因此 `main.sh` 里两条 `--user-workshop-url`（items / collections）在容器里注定拿不到 seed，已默认注释掉。要导入自己的收藏，请在本地有登录态的浏览器环境手动执行。
 
