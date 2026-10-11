@@ -279,6 +279,7 @@
             imported (atom [])]
         (swap! seen-collections into collection-ids)
         (doseq [coll-id pending-ids]
+          (try
           (let [coll-info (or (get @details-cache coll-id)
                               (let [ci (fetch-info-gated coll-id session)]
                                 (swap! details-cache assoc coll-id ci)
@@ -319,7 +320,10 @@
             (swap! visited into known-children)
             (swap! visited into known-new-children)
             (swap! visited into admitted-children)
-            (swap! imported conj coll-id)))
+            (swap! imported conj coll-id))
+           ;; 父合集抓取失败（限流/登录页）不能让整轮导入中断，跳过这个合集继续
+           (catch Exception ex
+             (println "warn: 跳过父合集" coll-id ":" (.getMessage ex)))))
         {:collection-ids @imported}))))
 
 (defn import-seeds! [tx-url basic-auth seed-ids opts session]
