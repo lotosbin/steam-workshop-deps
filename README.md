@@ -143,6 +143,17 @@ docker compose up -d --build importer     # 修改 main.sh 或 docker/ 后重新
 - 导入日志写入容器内 `/var/log/workshop-import.log`，由 entrypoint `tail` 转发到容器 stdout
 - `--build-arg CRON_SCHEDULE="* * * * *"` 可构建测试镜像，验证调度链路而无需等到 06:00
 
+抓取失败的容错（避免一轮数小时的导入被单个条目打断）：
+
+| 失败场景 | 行为 |
+|---|---|
+| 详情页导航 60s 超时（`TimeoutError`） | 自动重试最多 3 次，退避 2s/4s |
+| HTTP 5xx / 429 / 网络超时（browse、父合集列表） | 重试 1 次，退避 3s |
+| 单个条目重试后仍失败（登录墙、限流、页面异常） | 打印 `warn` 并跳过，**不中断 BFS**，结束时汇总 `failed items (skipped)= N` |
+| `myworkshopfiles` 抓不到任何条目（未登录必然如此） | 打印 `warn` 说明需要登录态；该任务抛 `empty seed ids` 结束，但 `main.sh` 会继续跑后续任务 |
+
+> 容器内没有 Steam 登录会话，因此 `main.sh` 里两条 `--user-workshop-url`（items / collections）在容器里注定拿不到 seed。要导入自己的收藏，请在本地有登录态的浏览器环境执行；容器里可以只保留 browse 相关任务。
+
 ## Babashka 脚本
 
 ### 批量导入（browse 列表递归）

@@ -141,13 +141,26 @@
          owned-session? (str/blank? session)
          session (or (not-empty session) (str "sw-" (subs (str (UUID/randomUUID)) 0 8)))]
      (try
-       (if owned-session?
-         (pw/open-session! session url)
-         (pw/goto! session url))
-       (let [eval-result (pw/eval! session extract-json-script)
+       ;; Steam 偶发 60s 导航超时（见容器日志的 TimeoutError）：超时就重试，
+       ;; 自己持有的 session 先关掉重开，借用的 session 直接重新 goto。
+       (pw/retry! 3
+                  (fn []
+                    (if owned-session?
+                      (do (pw/close-session! session)
+                          (pw/open-session! session url))
+                      (pw/goto! session url))))
+       (let [eval-result (pw/retry! 2 #(pw/eval! session extract-json-script))
              raw-result (pw/extract-result (:out eval-result))
              json-text (when raw-result (json/parse-string raw-result))
              data (when json-text (json/parse-string json-text true))
+             _ (when-not data
+                 (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
+                                 {:stdout (:out eval-result)})))
+             _ (when-not (or (:title data) (:author data) (seq (:required_item_ids data)))
+                 (throw (ex-info "详情页未渲染出内容（可能是 Steam 登录墙或返回了错误页）"
+                                 {:id id
+                                  :title (:title data)
+                                  :stdout (some-> (:out eval-result) (subs 0 (min 300 (count (:out eval-result)))))})))
              page-type (or (:page_type data) "workshop_item")
              author-profile-url (some-> data :author_profile_url not-empty)
              author-id (or (extract-author-id-from-url author-profile-url)
@@ -170,9 +183,6 @@
                                                       (catch Exception _ nil)))
                                     (some-> (:browse_url pc) not-empty)
                                     (assoc :parent_collections_browse_url (:browse_url pc))))]
-         (when-not data
-           (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
-                           {:stdout (:out eval-result)})))
          (assoc data
                 :id id
                 :page_type page-type

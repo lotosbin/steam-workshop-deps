@@ -111,14 +111,14 @@
            (str "?" new-query)))))
 
 (defn extract-workshop-list-ids! [session]
-  (let [eval-result (pw/eval! session extract-workshop-list-ids-script)
+  (let [eval-result (pw/retry! 2 #(pw/eval! session extract-workshop-list-ids-script))
         raw-result (pw/extract-result (:out eval-result))
         json-text (when raw-result (json/parse-string raw-result))
         ids (when json-text (json/parse-string json-text))]
     (vec (filter #(and % (re-matches #"\d+" %)) ids))))
 
 (defn extract-collection-list-ids! [session]
-  (let [eval-result (pw/eval! session extract-collection-list-ids-script)
+  (let [eval-result (pw/retry! 2 #(pw/eval! session extract-collection-list-ids-script))
         raw-result (pw/extract-result (:out eval-result))
         json-text (when raw-result (json/parse-string raw-result))
         ids (when json-text (json/parse-string json-text))]
@@ -130,22 +130,29 @@
          (mapcat (fn [p]
                    (let [url (browse-url appid required-tag sort p)]
                      (println "browse-url=" url)
-                     (extract-browse-ids (http-get-str url)))))
+                     ;; Steam 偶发 5xx/限流/超时，重试一次再放弃该页
+                     (pw/retry! 2 3000 #(extract-browse-ids (http-get-str url))))))
          distinct
          vec)))
 
 (defn fetch-user-workshop-seed-ids! [session base-user-workshop-url user-workshop-section page page-limit]
-  (let [pages (range page (+ page page-limit))]
-    (->> pages
-         (mapcat (fn [p]
-                   (let [url (paged-user-workshop-url base-user-workshop-url p)]
-                     (println "user-workshop-url=" url)
-                     (pw/goto! session url)
-                     (case user-workshop-section
-                       "collections" (extract-collection-list-ids! session)
-                       (extract-workshop-list-ids! session)))))
-         distinct
-         vec)))
+  (let [pages (range page (+ page page-limit))
+        ids (->> pages
+                 (mapcat (fn [p]
+                           (let [url (paged-user-workshop-url base-user-workshop-url p)]
+                             (println "user-workshop-url=" url)
+                             (pw/retry! 2 3000 #(pw/goto! session url))
+                             (case user-workshop-section
+                               "collections" (extract-collection-list-ids! session)
+                               (extract-workshop-list-ids! session)))))
+                 distinct
+                 vec)]
+    (when (empty? ids)
+      ;; myworkshopfiles 对未登录访客会跳转到登录页，此时页面里没有任何条目链接
+      (println (str "warn: 未从 " base-user-workshop-url " 提取到任何条目。"
+                    "myworkshopfiles 需要登录态；容器内无 Steam 会话时必然为空，"
+                    "请改用 browse 方式（--appid/--required-tag/--sort）或在有登录态的环境运行。")))
+    ids))
 
 (defn open-browser-session! [session]
   (pw/open-session! session "about:blank"))
@@ -287,8 +294,10 @@
         batch-edges (:batch-edges opts)
         appid (:appid opts)]
     (when (empty? seed-ids)
-      (println "没有可导入的 seed ids")
-      (throw (ex-info "empty seed ids" {:opts opts})))
+      ;; main.sh 是串行多任务：某个 seed 来源失效（如 myworkshopfiles 需要登录态）
+      ;; 不该用异常污染整轮日志和退出码，这里警告并跳过。
+      (println "warn: 没有可导入的 seed ids，跳过本次导入（检查 seed 来源 URL / required-tag / appid / 登录态）")
+      (throw (ex-info "empty seed ids" {:opts opts :skipped true})))
     (println "seed-count=" (count seed-ids))
     (let [cached-seed-ids (recent-mod-ids tx-url basic-auth seed-ids)
           fresh-seed-ids (vec (remove cached-seed-ids seed-ids))
@@ -304,6 +313,8 @@
           collection-edge-buf (atom [])
           details-cache (atom {})
           seen-collections (atom #{})
+          failed-items (atom #{})
+          fetch-attempts (atom {})
           parent-collection-budget-off? (zero? max-nodes)
           total-edges (atom 0)
           discovered-nodes (atom 0)
@@ -320,62 +331,76 @@
             (when (<= depth max-depth)
               (let [cached-info (get @details-cache id ::miss)
                     info (if (= ::miss cached-info)
-                           (workshop/fetch-info id session)
+                           (try
+                             (workshop/fetch-info id session)
+                             (catch Exception ex
+                               ;; 单个条目失败（超时/限流/登录墙）不该让整轮导入中断
+                               (swap! failed-items conj id)
+                               (println "warn: item=" id "depth=" depth
+                                        "抓取失败:" (.getMessage ex))
+                               nil))
                            cached-info)]
-                (when (= ::miss cached-info)
-                  (swap! node-buf conj (neo4j/node-row id info appid))
-                  (when-let [author-row (neo4j/author-row info)]
-                    (swap! author-buf conj author-row)
-                    (swap! authored-edge-buf conj (neo4j/authored-edge-row (:id author-row) id)))
-                  (swap! details-cache assoc id info)
-                  ;; 反向发现父合集：默认开启（除非 opts 显式 :parent-collections? false），
-                  ;; 只对第一层节点展开，且父合集自身不再上溯
-                  (when (and (not (false? (:parent-collections? opts)))
-                             (not parent-collection-budget-off?)
-                             (zero? depth))
-                    (expand-parent-collections! tx-url basic-auth info
-                                                (assoc opts :max-nodes max-nodes)
-                                                session
-                                                {:details-cache details-cache
-                                                 :seen-collections seen-collections
-                                                 :visited visited
-                                                 :node-buf node-buf
-                                                 :collection-buf collection-buf
-                                                 :collection-edge-buf collection-edge-buf
-                                                 :discovered-nodes discovered-nodes
-                                                 :skipped-deps skipped-deps
-                                                 :seed-count (count seed-ids)}))
-                  (when (pos? sleep-ms)
-                    (Thread/sleep sleep-ms)))
-                (let [deps (->> (:dependency_ids info)
-                                (filter #(and % (re-matches #"\d+" %)))
-                                distinct
-                                vec)
-                      known-deps-vec (->> deps
-                                          (filter #(contains? @visited %))
-                                          vec)
-                      new-deps-vec (->> deps
-                                        (remove #(contains? @visited %))
-                                        vec)
-                      cached-new-deps-vec (vec (recent-mod-ids tx-url basic-auth new-deps-vec))
-                      stale-new-deps-vec (vec (remove (set cached-new-deps-vec) new-deps-vec))
-                      remaining-slots (max 0 (- max-nodes @discovered-nodes))
-                      admitted-new-deps-vec (vec (take remaining-slots stale-new-deps-vec))
-                      allowed-deps-vec (into known-deps-vec (into cached-new-deps-vec admitted-new-deps-vec))]
-                  (println "fetched item=" id "depth=" depth "deps=" (count deps)
-                           "parent-collections=" (or (get-in info [:parent_collections :parent_collections_count]) 0))
-                  (doseq [d allowed-deps-vec]
-                    (swap! edge-buf conj (neo4j/edge-row id d)))
-                  (when (seq cached-new-deps-vec)
-                    (swap! skipped-recent + (count cached-new-deps-vec))
-                    (swap! visited into cached-new-deps-vec))
-                  (when (< (count admitted-new-deps-vec) (count stale-new-deps-vec))
-                    (swap! skipped-deps + (- (count stale-new-deps-vec) (count admitted-new-deps-vec))))
-                  (when (seq admitted-new-deps-vec)
-                    (swap! node-buf into (mapv #(neo4j/node-row % nil appid) admitted-new-deps-vec))
-                    (swap! visited into admitted-new-deps-vec)
-                    (swap! discovered-nodes + (count admitted-new-deps-vec))
-                    (swap! queue into (mapv (fn [d] [d (inc depth)]) admitted-new-deps-vec))))))
+                (if (nil? info)
+                  ;; 首次失败后重排队重试 1 次，仍失败则跳过（并记录到 failed items）
+                  (when (and (<= depth max-depth)
+                             (< (long (get @fetch-attempts id 0)) 1))
+                    (swap! fetch-attempts update id (fnil inc 0))
+                    (swap! queue conj [id depth]))
+                  (do
+                    (when (= ::miss cached-info)
+                      (swap! node-buf conj (neo4j/node-row id info appid))
+                      (when-let [author-row (neo4j/author-row info)]
+                        (swap! author-buf conj author-row)
+                        (swap! authored-edge-buf conj (neo4j/authored-edge-row (:id author-row) id)))
+                      (swap! details-cache assoc id info)
+                      ;; 反向发现父合集：默认开启（除非 opts 显式 :parent-collections? false），
+                      ;; 只对第一层节点展开，且父合集自身不再上溯
+                      (when (and (not (false? (:parent-collections? opts)))
+                                 (not parent-collection-budget-off?)
+                                 (zero? depth))
+                        (expand-parent-collections! tx-url basic-auth info
+                                                    (assoc opts :max-nodes max-nodes)
+                                                    session
+                                                    {:details-cache details-cache
+                                                     :seen-collections seen-collections
+                                                     :visited visited
+                                                     :node-buf node-buf
+                                                     :collection-buf collection-buf
+                                                     :collection-edge-buf collection-edge-buf
+                                                     :discovered-nodes discovered-nodes
+                                                     :skipped-deps skipped-deps
+                                                     :seed-count (count seed-ids)}))
+                      (when (pos? sleep-ms)
+                        (Thread/sleep (long sleep-ms))))
+                    (let [deps (->> (:dependency_ids info)
+                                    (filter #(and % (re-matches #"\d+" %)))
+                                    distinct
+                                    vec)
+                          known-deps-vec (->> deps
+                                              (filter #(contains? @visited %))
+                                              vec)
+                          new-deps-vec (->> deps
+                                            (remove #(contains? @visited %))
+                                            vec)
+                          cached-new-deps-vec (vec (recent-mod-ids tx-url basic-auth new-deps-vec))
+                          stale-new-deps-vec (vec (remove (set cached-new-deps-vec) new-deps-vec))
+                          remaining-slots (max 0 (- max-nodes @discovered-nodes))
+                          admitted-new-deps-vec (vec (take remaining-slots stale-new-deps-vec))
+                          allowed-deps-vec (into known-deps-vec (into cached-new-deps-vec admitted-new-deps-vec))]
+                      (println "fetched item=" id "depth=" depth "deps=" (count deps)
+                               "parent-collections=" (or (get-in info [:parent_collections :parent_collections_count]) 0))
+                      (doseq [d allowed-deps-vec]
+                        (swap! edge-buf conj (neo4j/edge-row id d)))
+                      (when (seq cached-new-deps-vec)
+                        (swap! skipped-recent + (count cached-new-deps-vec))
+                        (swap! visited into cached-new-deps-vec))
+                      (when (< (count admitted-new-deps-vec) (count stale-new-deps-vec))
+                        (swap! skipped-deps + (- (count stale-new-deps-vec) (count admitted-new-deps-vec))))
+                      (when (seq admitted-new-deps-vec)
+                        (swap! node-buf into (mapv #(neo4j/node-row % nil appid) admitted-new-deps-vec))
+                        (swap! visited into admitted-new-deps-vec)
+                        (swap! discovered-nodes + (count admitted-new-deps-vec))
+                        (swap! queue into (mapv (fn [d] [d (inc depth)]) admitted-new-deps-vec))))))))
             (when (seq @node-buf)
               (post-node-batch! tx-url basic-auth (vec @node-buf))
               (reset! node-buf []))
@@ -429,6 +454,7 @@
       (println "visited nodes=" (count @visited))
       (println "discovered dependency nodes=" @discovered-nodes)
       (println "parent collections=" (count @seen-collections))
+      (println "failed items (skipped)=" (count @failed-items) (vec (take 20 @failed-items)))
       (println "skipped recently imported mods within 1h=" @skipped-recent)
       (println "skipped deps due to max-nodes=" @skipped-deps)
       (println "edges posted=" @total-edges))))

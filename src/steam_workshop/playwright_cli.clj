@@ -5,6 +5,35 @@
 (def install-browser-hint
   "如果缺少浏览器运行时，执行: npx @playwright/cli install-browser")
 
+(defn retryable-error?
+  "判断异常是否值得重试：playwright 导航超时、HTTP 5xx/429，或网络层超时。
+   ex-data 里带 :status 的是 steam-workshop.importer/http-get-str 抛出的。"
+  [ex]
+  (let [{:keys [status stdout]} (ex-data ex)
+        status (when (number? status) (long status))]
+    (boolean
+     (or (some-> stdout (str/includes? "Timeout"))
+         (and status (or (>= status 500) (= status 429)))
+         (re-find #"(?i)timed?\s*out" (str (.getMessage ex)))))))
+
+(defn retry!
+  "执行 f，最多 attempts 次；仅当抛出可重试异常（见 retryable-error?）时重试。
+   退避 sleep-ms*attempt，全部失败时抛出最后一次异常。"
+  ([attempts f] (retry! attempts 2000 f))
+  ([attempts sleep-ms f]
+   (loop [n 1]
+     (let [result (try
+                    {:ok (f)}
+                    (catch Exception ex {:ex ex}))]
+       (if-let [ex (:ex result)]
+         (if (and (< n attempts) (retryable-error? ex))
+           (do
+             (println "warn: 可重试失败，" n "/" attempts ":" (.getMessage ex))
+             (Thread/sleep (* (long sleep-ms) (long n)))
+             (recur (inc n)))
+           (throw ex))
+         (:ok result))))))
+
 (defn run-cli [& args]
   (apply shell/sh "npx" "@playwright/cli" args))
 
