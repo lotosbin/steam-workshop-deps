@@ -373,6 +373,8 @@
                              (catch Exception ex
                                ;; 单个条目失败（超时/限流/登录墙）不该让整轮导入中断
                                (when (pw/rate-limited? ex)
+                                 ;; 记录时间点，让后续抓取统一走冷却 gate
+                                 (note-rate-limit!)
                                  (swap! rate-limited-items conj id))
                                (swap! failed-items conj id)
                                (println "warn: item=" id "depth=" depth
