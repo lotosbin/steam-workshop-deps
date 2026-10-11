@@ -27,14 +27,41 @@
    "  if (!container) return [];"
    "  return Array.from(new Set(Array.from(container.querySelectorAll('.collectionItemDetails a[href*=\"/sharedfiles/filedetails/?id=\"], .collectionItemDetails a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean)));"
    "})(),"
-   "linked_workshop_ids: Array.from(new Set(Array.from(document.querySelectorAll('a[href*=\"/sharedfiles/filedetails/?id=\"], a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean)))"
+   "linked_workshop_ids: Array.from(new Set(Array.from(document.querySelectorAll('a[href*=\"/sharedfiles/filedetails/?id=\"], a[href*=\"/workshop/filedetails/?id=\"]')).map((a) => (a.href.match(/[?&]id=(\\d+)/) || [null, null])[1]).filter(Boolean))),"
+   ;; 反向依赖入口：「See all N collections / N 个项目依赖此项目」
+   "parent_collections: (() => {"
+   "  const panel = document.querySelector('.parentCollectionsNumOthers');"
+   "  if (!panel) return null;"
+   "  const a = panel.querySelector('a[href]');"
+   "  const text = (a?.textContent || '').trim();"
+   "  const linkCount = (text.match(/(\\d+)/) || [null, null])[1];"
+   "  const m = panel.textContent.match(/([\\d,]+)\\s*(collections?|items?)/i);"
+   "  return {count: m ? m[1].replace(/,/g, '') : null,"
+   "          url_count: /see all/i.test(panel.textContent) ? linkCount : null,"
+   "          browse_url: a ? a.href : null};"
+   "})()"
    "})"))
 
 ;; 列表页（/workshop/browse/、myworkshopfiles）已改为 React SSR 渲染，
 ;; 旧版 .workshopBrowseItems/.workshopItem 选择器与裸 href 正则都不再可靠；
-;; 结构化数据在内联脚本 window.SSR.renderContext=JSON.parse("...") 的 query cache 中。
+;; 结构化数据在 <script type="application/json" id="valve-ssr-data"> 内嵌 JSON 的
+;; renderContext.queryData query cache 中（更早的版本是
+;; window.SSR.renderContext=JSON.parse("...")，保留解析作兜底）。
 (def ssr-render-context-marker
   "window.SSR.renderContext=JSON.parse(")
+
+(def ^:private ssr-data-script-re
+  #"(?s)<script[^>]*\bid=\"valve-ssr-data\"[^>]*>(.*?)</script>")
+
+(defn- decode-html-entities
+  "解码内联脚本里出现的常见 HTML 实体（&amp; &quot; &lt; &gt; &#39;）。"
+  [s]
+  (-> (str s)
+      (str/replace "&quot;" "\"")
+      (str/replace "&#39;" "'")
+      (str/replace "&lt;" "<")
+      (str/replace "&gt;" ">")
+      (str/replace "&amp;" "&")))
 
 (defn- js-string-end
   "返回 JS 字符串字面量结束引号的索引（从 from 开始扫描，跳过转义字符）。"
@@ -49,18 +76,22 @@
           :else (recur (inc i) false))))))
 
 (defn extract-ssr-render-context
-  "从页面 HTML 的 window.SSR.renderContext=JSON.parse(\"<json>\") 解析 SSR 上下文；
-   旧版页面或解析失败时返回 nil。"
+  "从页面 HTML 解析 SSR 上下文（renderContext map）；旧版页面或解析失败时返回 nil。
+   优先解析 <script id=\"valve-ssr-data\">，回退 window.SSR.renderContext=JSON.parse(\"...\")。"
   [html]
-  (when-let [marker-start (str/index-of html ssr-render-context-marker)]
-    (let [literal-start (str/index-of html "\"" (+ marker-start (count ssr-render-context-marker)))]
-      (when literal-start
-        (when-let [literal-end (js-string-end html (inc literal-start))]
-          (try
-            (json/parse-string
-             (json/parse-string (subs html literal-start (inc literal-end)))
-             true)
-            (catch Exception _ nil)))))))
+  (if-let [script-content (some-> (re-find ssr-data-script-re (str html)) second)]
+    (try
+      (:renderContext (json/parse-string (decode-html-entities script-content) true))
+      (catch Exception _ nil))
+    (when-let [marker-start (str/index-of html ssr-render-context-marker)]
+      (let [literal-start (str/index-of html "\"" (+ marker-start (count ssr-render-context-marker)))]
+        (when literal-start
+          (when-let [literal-end (js-string-end html (inc literal-start))]
+            (try
+              (json/parse-string
+               (json/parse-string (subs html literal-start (inc literal-end)))
+               true)
+              (catch Exception _ nil))))))))
 
 (defn ssr-query-results
   "取出 SSR query cache 中 workshop_browse 查询的 results；
@@ -129,7 +160,16 @@
                                      (:linked_workshop_ids data)))
              dependency-ids (if (= page-type "collection")
                               collection-item-ids
-                              (vec (remove #(= % id) required-ids)))]
+                              (vec (remove #(= % id) required-ids)))
+             ;; 详情页右侧「See all N collections」面板 -> 反向发现包含本项目的父合集
+             parent-collections (let [pc (:parent_collections data)
+                                      count (some-> (or (:url_count pc) (:count pc)) str not-empty)]
+                                  (cond-> {}
+                                    count (assoc :parent_collections_count
+                                                 (try (Long/parseLong count)
+                                                      (catch Exception _ nil)))
+                                    (some-> (:browse_url pc) not-empty)
+                                    (assoc :parent_collections_browse_url (:browse_url pc))))]
          (when-not data
            (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
                            {:stdout (:out eval-result)})))
@@ -142,6 +182,7 @@
                 :collection_item_ids collection-item-ids
                 :dependency_ids dependency-ids
                 :linked_workshop_ids linked-ids
+                :parent_collections (not-empty parent-collections)
                 :source "steamcommunity-playwright-cli"))
        (finally
          (when owned-session?

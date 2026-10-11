@@ -158,7 +158,7 @@ bb steam_import_neo4j.bb.clj \
   --max-nodes 300
 ```
 
-会从 browse 页抓取 seed（browse 页已改为 React SSR 渲染，seed 直接解析内联的 `window.SSR.renderContext` query cache，不再依赖列表 DOM），再去重、BFS 递归抓依赖。常用 `--sort`：
+会从 browse 页抓取 seed（browse 页已改为 React SSR 渲染，seed 直接解析内联的 `<script id="valve-ssr-data">` 里的 query cache，不再依赖列表 DOM），再去重、BFS 递归抓依赖。常用 `--sort`：
 
 | 值 | 含义 |
 |---|---|
@@ -169,9 +169,30 @@ bb steam_import_neo4j.bb.clj \
 其他参数语义：
 
 - `--page-limit`：从 `--page` 起连续抓取的页数，browse 请求固定带 `numperpage=30`
-- `--max-nodes`：限制递归过程中**新增的依赖节点**数，不含初始 seed
+- `--max-nodes`：限制递归过程中**新增的节点**数（依赖节点 + 反向发现的父合集及其条目，不含初始 seed）
 - `--sort` 同时映射到 browse URL 的 `actualsort` 与 `browsesort`
 - 写入 `Mod` 节点时记录 `imported_at`，1 小时内已导入的 mod 会被 BFS 跳过，避免重复抓取
+
+#### 反向发现：父合集（「N 个项目依赖此项目」）
+
+Item 详情页右侧有 `See all N collections` 面板，指向
+
+```
+https://steamcommunity.com/workshop/browse/?section=collections&appid=<appid>&childpublishedfileid=<item-id>
+```
+
+即「包含此项目的合集」列表（`(Collection)-[:CONTAINS]->(Mod)` 的反方向）。BFS 抓每个第一层 item 时会顺带：
+
+1. 解析该面板的 `childpublishedfileid` 链接与数量，写入 `Mod.parent_collections_count`；
+2. 抓该 browse 页（新版 SSR 解析，失败时回退到浏览器），得到父合集 id；
+3. 对每个父合集节点：抓详情页拿到 `collection_item_ids`，写 `(Collection)-[:CONTAINS]->(Mod)` 并把这些条目作为节点入图。
+
+约束与去重：
+
+- **只展开一层**：父合集本身不再上溯（不会继续找「包含这个合集的合集」），其条目也不做依赖 BFS；
+- 父合集节点与其条目**一起计入 `--max-nodes`**，名额不够时整体跳过，避免导入一个没有任何条目的空合集；
+- `visited` 集合 + Neo4j 中 1 小时内已导入的 `Mod`/`Collection` 双重去重，同一合集只抓一次详情页；
+- `extract-collection-list-ids-script`/`--user-workshop-section collections` 路径作为 seed 导入时显式关闭该展开（`--parent-collections? false`），避免合集与其条目互相上溯成环。
 
 ### 指定用户 / 合集作为 seed
 
@@ -200,8 +221,8 @@ bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfile
 
 支持两类页面：
 
-- **普通 Workshop item**：递归抓 `Required items` 依赖链，并补全标题、作者、封面、发布时间等
-- **Collection 页面**：自动识别为 `Collection` 节点，提取条目写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再递归抓这些条目的依赖
+- **普通 Workshop item**：递归抓 `Required items` 依赖链，并补全标题、作者、封面、发布时间等；同时反向发现「包含此项目的合集」（见上文「反向发现：父合集」）
+- **Collection 页面**：自动识别为 `Collection` 节点，提取条目写入 `(:Collection)-[:CONTAINS]->(:Mod)`，再递归抓这些条目的依赖（合集条目作为 seed 时不再反向展开父合集）
 
 ### 抓取单页信息（不写库）
 
@@ -243,7 +264,7 @@ workshop-deps cycles  --workshop-dir "/path/to/steamapps/workshop/content/108600
 
 | 标签 | 主要属性 |
 |---|---|
-| `:Mod` | `id` `workshop_id` `title` `author` `author_id` `author_profile_url` `canonical_url` `preview_url` `posted` `updated` `file_size` `description` `obsolete` `imported_at` `source` |
+| `:Mod` | `id` `workshop_id` `title` `author` `author_id` `author_profile_url` `canonical_url` `preview_url` `posted` `updated` `file_size` `description` `obsolete` `parent_collections_count` `imported_at` `source` |
 | `:Collection` | `id` `workshop_id` `title` `author` `author_id` `canonical_url` `preview_url` `posted` `updated` `description` `page_type` `collection_item_ids` `linked_workshop_ids` |
 | `:Author` | `id` `name` `profile_url` `source` |
 
@@ -335,7 +356,7 @@ docker compose logs -f cloudflared     # 出现 Registered tunnel connection 即
 ## 环境说明
 
 - **Neo4j Community 版**：只支持单个数据库，且没有细粒度权限（`GRANT ROLE` 等为 Enterprise 功能）。若需要只读对外访问，只能用 `server.databases.read_only=neo4j` 配置项（需重启生效，且会同时禁止导入容器写入）
-- **Playwright 抓取**：依赖 Steam 页面结构，目前存在两套页面：详情页（`sharedfiles/filedetails`）仍是旧版 DOM，走 `workshop.clj` 的选择器；列表页（`/workshop/browse/`、`myworkshopfiles`）已改为 React SSR，seed 提取优先解析内联的 `window.SSR.renderContext`，旧版 DOM 选择器与 href 正则只作兜底。Steam 再次改版时优先检查这两条路径
+- **Playwright 抓取**：依赖 Steam 页面结构，目前存在两套页面：详情页（`sharedfiles/filedetails`）仍是旧版 DOM，走 `workshop.clj` 的选择器；列表页（`/workshop/browse/`、`myworkshopfiles`）已改为 React SSR，seed 提取优先解析内联的 `<script id="valve-ssr-data">` JSON（`renderContext.queryData`），旧版的 `window.SSR.renderContext=JSON.parse(...)`、DOM 选择器与 href 正则只作兜底。Steam 再次改版时优先检查这三条路径
 - **导入耗时**：单条导入需要数十分钟，全量 `main.sh` 可能持续数小时，建议交给定时容器执行
 
 ## 路线图
@@ -353,4 +374,4 @@ docker compose logs -f cloudflared     # 出现 Registered tunnel connection 即
 
 ---
 
-**最后更新**：2026-10-03
+**最后更新**：2026-10-11

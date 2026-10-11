@@ -79,6 +79,13 @@
      AND m.imported_at >= $cutoff
    RETURN m.id AS id")
 
+(def recent-collections-statement
+  "MATCH (c:Collection)
+   WHERE c.id IN $ids
+     AND c.imported_at IS NOT NULL
+     AND c.imported_at >= $cutoff
+   RETURN c.id AS id")
+
 (defn obsolete-title? [title]
   (boolean (and (some? title)
                 (re-find #"(?i)(obsolete|deprecat)" (str title)))))
@@ -102,7 +109,11 @@
              (:posted info) (assoc :posted (:posted info))
              (:updated info) (assoc :updated (:updated info))
              (:file_size info) (assoc :file_size (:file_size info))
-             (:description info) (assoc :description (:description info)))}))
+             (:description info) (assoc :description (:description info))
+             ;; 反向依赖：包含本项目的合集数量（详情页 parentCollectionsNumOthers 面板）
+             (get-in info [:parent_collections :parent_collections_count])
+             (assoc :parent_collections_count
+                    (get-in info [:parent_collections :parent_collections_count])))}))
 
 (defn collection-row
   ([id info] (collection-row id info nil))
@@ -173,6 +184,13 @@
 (defn recent-mod-ids [tx-url basic-auth ids cutoff]
   (->> (query! tx-url basic-auth recent-mods-statement {:ids (mapv str ids)
                                                         :cutoff cutoff})
+       rows
+       (keep :id)
+       set))
+
+(defn recent-collection-ids [tx-url basic-auth ids cutoff]
+  (->> (query! tx-url basic-auth recent-collections-statement {:ids (mapv str ids)
+                                                               :cutoff cutoff})
        rows
        (keep :id)
        set))
