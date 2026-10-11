@@ -8,12 +8,14 @@ bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort tot
 bb steam_import_neo4j.bb.clj --appid 108600 --required-tag "Build 42" --sort trend
 
 # 指定用户的 Workshop Items 页面
-bb steam_import_neo4j.bb.clj \
-  --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?appid=108600" \
-  --page 1 \
-  --page-limit 1 \
-  --max-depth 5 \
-  --max-nodes 300
+# 容器内没有 Steam 登录会话，myworkshopfiles 会跳登录页 -> 必然 empty seed ids，
+# 因此默认注释；需要时在本地有登录态的浏览器环境手动执行。
+# bb steam_import_neo4j.bb.clj \
+#   --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?appid=108600" \
+#   --page 1 \
+#   --page-limit 1 \
+#   --max-depth 5 \
+#   --max-nodes 300
 
 # 从指定合集详情页导入(单个 URL，包含 collection 及其条目依赖)
 bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3624259825"
@@ -25,11 +27,11 @@ bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfile
 # 九九
 bb steam_import_single_neo4j.bb.clj --url "https://steamcommunity.com/sharedfiles/filedetails/?id=3815654390"
 
-# 指定用户的 Collections 页面
-bb steam_import_neo4j.bb.clj \
-  --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?section=collections&appid=108600" \
-  --user-workshop-section collections \
-  --page 1 \
-  --page-limit 1 \
-  --max-depth 5 \
-  --max-nodes 300
+# 指定用户的 Collections 页面（同上：容器内无登录态，默认注释）
+# bb steam_import_neo4j.bb.clj \
+#   --user-workshop-url "https://steamcommunity.com/id/lotosbin/myworkshopfiles/?section=collections&appid=108600" \
+#   --user-workshop-section collections \
+#   --page 1 \
+#   --page-limit 1 \
+#   --max-depth 5 \
+#   --max-nodes 300

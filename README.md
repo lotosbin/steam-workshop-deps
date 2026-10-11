@@ -138,7 +138,7 @@ docker compose up -d --build importer     # 修改 main.sh 或 docker/ 后重新
 
 行为说明：
 
-- `main.sh` 内是 **8 条串行导入**，单条耗时数十分钟，整体可能持续数小时
+- `main.sh` 内是 **7 条串行导入**（3 条 browse + 4 条合集/单条），单条耗时数十分钟，整体可能持续数小时
 - `run-import.sh` 用 `flock` 加锁，启动触发与定时触发**互斥**，不会重复跑
 - 导入日志写入容器内 `/var/log/workshop-import.log`，由 entrypoint `tail` 转发到容器 stdout
 - `--build-arg CRON_SCHEDULE="* * * * *"` 可构建测试镜像，验证调度链路而无需等到 06:00
@@ -152,7 +152,7 @@ docker compose up -d --build importer     # 修改 main.sh 或 docker/ 后重新
 | 单个条目重试后仍失败（登录墙、限流、页面异常） | 打印 `warn` 并跳过，**不中断 BFS**，结束时汇总 `failed items (skipped)= N` |
 | `myworkshopfiles` 抓不到任何条目（未登录必然如此） | 打印 `warn` 说明需要登录态；该任务抛 `empty seed ids` 结束，但 `main.sh` 会继续跑后续任务 |
 
-> 容器内没有 Steam 登录会话，因此 `main.sh` 里两条 `--user-workshop-url`（items / collections）在容器里注定拿不到 seed。要导入自己的收藏，请在本地有登录态的浏览器环境执行；容器里可以只保留 browse 相关任务。
+> 容器内没有 Steam 登录会话，因此 `main.sh` 里两条 `--user-workshop-url`（items / collections）在容器里注定拿不到 seed，已默认注释掉。要导入自己的收藏，请在本地有登录态的浏览器环境手动执行。
 
 ## Babashka 脚本
 
