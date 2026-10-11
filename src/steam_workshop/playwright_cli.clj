@@ -10,17 +10,23 @@
   90000)
 
 (defn rate-limited?
-  "判断异常是否为 Steam 429 限流。判定依据：
-   ex-data 的 :status，或 :stdout / :page_text 里出现 429 / Too Many Requests。"
+  "判断异常是否表示「页面被 Steam 挡住」：429 限流，或匿名/数据中心 IP 直接收到登录页。
+   判定依据：ex-data 的 :status、:access-gate?，或 :stdout / :page-text 里的
+   429 / Too Many Requests / Steam 登录页特征。"
   [ex]
-  (let [{:keys [status stdout page-text]} (ex-data ex)
-        status (when (number? status) (long status))]
+  (let [{:keys [status stdout page-text access-gate?]} (ex-data ex)
+        status (when (number? status) (long status))
+        page-text (str page-text)]
     (boolean
      (or (= status 429)
+         access-gate?
          (some-> stdout (str/includes? "429"))
          (some-> stdout (str/includes? "Too Many Requests"))
-         (some-> page-text (str/includes? "429"))
-         (some-> page-text (str/includes? "Too Many Requests"))))))
+         (str/includes? page-text "429")
+         (str/includes? page-text "Too Many Requests")
+         ;; 登录页特征：title 是 Steam Community 且正文出现 Sign in
+         (and (str/includes? page-text "Steam Community")
+              (str/includes? page-text "Sign in"))))))
 
 (defn retryable-error?
   "判断异常是否值得重试：playwright 导航超时、Steam 429 限流、HTTP 5xx，或网络层超时。

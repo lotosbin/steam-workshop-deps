@@ -148,12 +148,14 @@
       (throw (ex-info "未能从 playwright-cli 输出中提取 JSON"
                       {:id id :stdout (:out eval-result)})))
     (when-not (or (:title data) (:author data) (seq (:required_item_ids data)))
-      ;; 429 限流时 Steam 会返回空壳页；把页面文本带上，供 rate-limited? 识别并退避重试
+      ;; 空壳页：可能是 Steam 429 限流，也可能是对匿名/数据中心 IP 直接返回登录页。
+      ;; 带上 :page-text 与 :access-gate?，供 playwright-cli 识别并触发退避冷却。
       (let [probe (some-> (pw/eval! session page-probe-script) :out pw/extract-result)]
-        (throw (ex-info "详情页未渲染出内容（Steam 429 限流或登录墙）"
+        (throw (ex-info "详情页未渲染出内容（Steam 登录页/429 限流）"
                         {:id id
                          :title (:title data)
                          :page-text probe
+                         :access-gate? true
                          :stdout (some-> (:out eval-result)
                                          (subs 0 (min 300 (count (:out eval-result)))))}))))
     data))
@@ -202,9 +204,10 @@
          owned-session? (str/blank? session)
          session (or (not-empty session) (str "sw-" (subs (str (UUID/randomUUID)) 0 8)))]
      (try
-       ;; 导航 + 解析 + 空壳页判定整体重试：Steam 偶发 60s 超时、429 限流时
-       ;; 退避后重开页面再来；自持 session 每次重试都关掉重开，借用的直接 goto。
-       (pw/retry! 3
+       ;; 导航 + 解析 + 空壳页判定整体重试：Steam 偶发 60s 超时、429 限流或登录页时
+       ;; 退避后重开页面再来（每次导航超时本身就要 60s，故只重试 2 次，避免单条目耗时过长）；
+       ;; 自持 session 每次重试都关掉重开，借用的直接 goto。
+       (pw/retry! 2
                   (fn []
                     (if owned-session?
                       (do (pw/close-session! session)
